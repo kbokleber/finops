@@ -1,20 +1,17 @@
 #!/usr/bin/env python3
 """
 Configurações para autenticação Azure AD
+
+Em producao (Coolify/Docker), as env vars sao injetadas direto pelo Coolify
+na UI, entao NAO precisamos carregar .env. O arquivo .env.example no repo
+serve apenas como template/documentacao das variaveis.
 """
 
 import os
 from datetime import timedelta
-from pathlib import Path
 
-# Forçar carregamento do .env se não estiver carregado
-try:
-    from dotenv import load_dotenv
-    env_file = Path(__file__).parent / '.env'
-    if env_file.exists():
-        load_dotenv(env_file, override=False)  # Não sobrescrever se já existir
-except ImportError:
-    pass
+# As credenciais DB, SECRET_KEY, etc vem direto das env vars injetadas
+# pelo Coolify (ou do .env em dev local). Nao carregamos .env aqui.
 
 class Config:
     """Configurações da aplicação"""

@@ -44,10 +44,7 @@ RUN pip install --upgrade pip \
 # Copia o codigo inteiro para /finops/finops_celery/.
 COPY . /finops/finops_celery/
 
-# settings.py le /finops/finops_celery/.env (path absoluto).
-# Em runtime, o Coolify monta env vars na UI; este arquivo eh so um placeholder.
-RUN cp /finops/finops_celery/.env.example /finops/finops_celery/.env \
-    || touch /finops/finops_celery/.env
+# Em runtime, o Coolify injeta env vars na UI. Nao precisamos de .env.
 
 # Cria diretorios de log que o codigo assume existirem.
 RUN mkdir -p /finops/finops_celery/logs
