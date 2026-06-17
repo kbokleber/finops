@@ -278,7 +278,6 @@ def api_celery_status():
             'last_check': convert_to_brasilia(datetime.utcnow()),
             'workers': list(stats.keys())
         })
-            })
 
     except Exception as e:
         return jsonify({
