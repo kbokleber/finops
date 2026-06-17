@@ -1,0 +1,99 @@
+# Arquivos de configuração sensíveis e certificados
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+service_com_br_full.*
+.git-credentials
+
+# Logs e arquivos temporários
+*.log
+*.tmp
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Histórico e cache do shell
+.bash_history
+.lesshst
+.viminfo
+
+# Diretórios Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+.env
+.cache/
+.pytest_cache/
+*.egg-info/
+
+# Dados específicos do ambiente
+*.pid
+*.sock
+*.sqlite
+*.db
+grafana.db
+dashboard.pid
+
+# Arquivos de backup
+*.bak
+*.backup
+*.old
+backup/
+
+# Arquivos Docker específicos do ambiente
+docker-compose.override.yml
+docker-compose.dev.yml
+config/docker/docker-compose.dev.yml
+.env.local
+
+# Diretórios de dados persistentes
+data/
+logs/
+dashboard_env/
+
+# Certificados SSL e chaves
+certificados/
+ssl/
+*.pem
+
+# Arquivos de sistema e SSH
+.ssh/
+.gnupg/
+
+# Arquivos temporários do projeto
+analise_erros_processamento.md
+consultas_sql_corrigidas.md
+resumo_arquitetura_escalavel.md
+architecture_proposal.md
+comandos.txt
+get-docker.sh
+verificar_oci_config.sh
+verify_oci_status.py
+
+# Arquivos de configuração específicos
+.cloud-locale-test.skip
+dashboard/flask_session/
+temp/
+*.md.bak
+finops_celery/.env
+dashboard/.env.production
+dashboard/.env
+*.env.production
+*.env.local
+*.env.staging
+*.env.dev
+*.dump
+*.tar.gz
+*.zip
+
+# Arquivo local com anotacoes de credenciais (NAO versionado)
+SECRETS.txt

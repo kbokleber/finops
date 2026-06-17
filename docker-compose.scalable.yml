@@ -1,0 +1,437 @@
+# 🐳 Docker Compose para Arquitetura FinOps Multi-Tenant Escalável
+
+version: '3.8'
+
+networks:
+  finops_network:
+    driver: bridge
+
+volumes:
+  postgres_master_data:
+  postgres_tenant_data:
+  redis_data:
+  clickhouse_data:
+
+services:
+  # === DATABASES ===
+  
+  # Banco Master (metadados de tenants)
+  postgres_master:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: finops_master
+      POSTGRES_USER: finops_admin
+      POSTGRES_PASSWORD: admin_password
+    volumes:
+      - postgres_master_data:/var/lib/postgresql/data
+      - ./init_scripts/master_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - finops_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U finops_admin -d finops_master"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Banco para Tenants (pode ser separado por tenant em produção)
+  postgres_tenants:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: finops_tenants
+      POSTGRES_USER: finops_tenant_admin
+      POSTGRES_PASSWORD: tenant_admin_password
+    volumes:
+      - postgres_tenant_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    networks:
+      - finops_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U finops_tenant_admin -d finops_tenants"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # === CACHE & MESSAGE BROKER ===
+  
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - finops_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    environment:
+      RABBITMQ_DEFAULT_USER: finops
+      RABBITMQ_DEFAULT_PASS: finops_password
+    ports:
+      - "5672:5672"
+      - "15672:15672"  # Management UI
+    networks:
+      - finops_network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # === ANALYTICS DATABASE ===
+  
+  clickhouse:
+    image: clickhouse/clickhouse-server:23
+    environment:
+      CLICKHOUSE_DB: finops_analytics
+      CLICKHOUSE_USER: finops_analytics
+      CLICKHOUSE_PASSWORD: analytics_password
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./clickhouse_config:/etc/clickhouse-server/config.d
+    ports:
+      - "8123:8123"  # HTTP
+      - "9000:9000"  # Native TCP
+    networks:
+      - finops_network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # === API GATEWAY ===
+  
+  api_gateway:
+    build:
+      context: .
+      dockerfile: dockerfiles/Dockerfile.api_gateway
+    environment:
+      - POSTGRES_MASTER_URL=postgresql://finops_admin:admin_password@postgres_master:5432/finops_master
+      - REDIS_URL=redis://redis:6379/0
+      - FLASK_ENV=production
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres_master:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - finops_network
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+
+  # === PROVIDER SERVICES ===
+  
+  oci_service:
+    build:
+      context: .
+      dockerfile: dockerfiles/Dockerfile.oci_service
+    environment:
+      - POSTGRES_MASTER_URL=postgresql://finops_admin:admin_password@postgres_master:5432/finops_master
+      - POSTGRES_TENANTS_URL=postgresql://finops_tenant_admin:tenant_admin_password@postgres_tenants:5432/finops_tenants
+      - REDIS_URL=redis://redis:6379/1
+      - CELERY_BROKER=amqp://finops:finops_password@rabbitmq:5672//
+    depends_on:
+      postgres_master:
+        condition: service_healthy
+      postgres_tenants:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - finops_network
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+
+  aws_service:
+    build:
+      context: .
+      dockerfile: dockerfiles/Dockerfile.aws_service
+    environment:
+      - POSTGRES_MASTER_URL=postgresql://finops_admin:admin_password@postgres_master:5432/finops_master
+      - POSTGRES_TENANTS_URL=postgresql://finops_tenant_admin:tenant_admin_password@postgres_tenants:5432/finops_tenants
+      - REDIS_URL=redis://redis:6379/1
+      - CELERY_BROKER=amqp://finops:finops_password@rabbitmq:5672//
+    depends_on:
+      postgres_master:
+        condition: service_healthy
+      postgres_tenants:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - finops_network
+    deploy:
+      replicas: 2
+
+  azure_service:
+    build:
+      context: .
+      dockerfile: dockerfiles/Dockerfile.azure_service
+    environment:
+      - POSTGRES_MASTER_URL=postgresql://finops_admin:admin_password@postgres_master:5432/finops_master
+      - POSTGRES_TENANTS_URL=postgresql://finops_tenant_admin:tenant_admin_password@postgres_tenants:5432/finops_tenants
+      - REDIS_URL=redis://redis:6379/1
+      - CELERY_BROKER=amqp://finops:finops_password@rabbitmq:5672//
+    depends_on:
+      postgres_master:
+        condition: service_healthy
+      postgres_tenants:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - finops_network
+    deploy:
+      replicas: 2
+
+  gcp_service:
+    build:
+      context: .
+      dockerfile: dockerfiles/Dockerfile.gcp_service
+    environment:
+      - POSTGRES_MASTER_URL=postgresql://finops_admin:admin_password@postgres_master:5432/finops_master
+      - POSTGRES_TENANTS_URL=postgresql://finops_tenant_admin:tenant_admin_password@postgres_tenants:5432/finops_tenants
+      - REDIS_URL=redis://redis:6379/1
+      - CELERY_BROKER=amqp://finops:finops_password@rabbitmq:5672//
+    depends_on:
+      postgres_master:
+        condition: service_healthy
+      postgres_tenants:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - finops_network
+    deploy:
+      replicas: 1
+
+  # === WORKERS CELERY ===
+  
+  celery_beat:
+    build:
+      context: .
+      dockerfile: dockerfiles/Dockerfile.celery
+    command: celery -A multi_tenant_orchestrator beat --loglevel=info --pidfile=/tmp/celerybeat.pid
+    environment:
+      - POSTGRES_MASTER_URL=postgresql://finops_admin:admin_password@postgres_master:5432/finops_master
+      - POSTGRES_TENANTS_URL=postgresql://finops_tenant_admin:tenant_admin_password@postgres_tenants:5432/finops_tenants
+      - REDIS_URL=redis://redis:6379/2
+      - CELERY_BROKER=amqp://finops:finops_password@rabbitmq:5672//
+    depends_on:
+      postgres_master:
+        condition: service_healthy
+      postgres_tenants:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - finops_network
+    volumes:
+      - ./logs:/app/logs
+
+  celery_worker_oci:
+    build:
+      context: .
+      dockerfile: dockerfiles/Dockerfile.celery
+    command: celery -A multi_tenant_orchestrator worker --loglevel=info --queues=oci_collection --concurrency=4
+    environment:
+      - POSTGRES_MASTER_URL=postgresql://finops_admin:admin_password@postgres_master:5432/finops_master
+      - POSTGRES_TENANTS_URL=postgresql://finops_tenant_admin:tenant_admin_password@postgres_tenants:5432/finops_tenants
+      - REDIS_URL=redis://redis:6379/2
+      - CELERY_BROKER=amqp://finops:finops_password@rabbitmq:5672//
+    depends_on:
+      postgres_master:
+        condition: service_healthy
+      postgres_tenants:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - finops_network
+    deploy:
+      replicas: 3
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+
+  celery_worker_aws:
+    build:
+      context: .
+      dockerfile: dockerfiles/Dockerfile.celery
+    command: celery -A multi_tenant_orchestrator worker --loglevel=info --queues=aws_collection --concurrency=4
+    environment:
+      - POSTGRES_MASTER_URL=postgresql://finops_admin:admin_password@postgres_master:5432/finops_master
+      - POSTGRES_TENANTS_URL=postgresql://finops_tenant_admin:tenant_admin_password@postgres_tenants:5432/finops_tenants
+      - REDIS_URL=redis://redis:6379/2
+      - CELERY_BROKER=amqp://finops:finops_password@rabbitmq:5672//
+    depends_on:
+      postgres_master:
+        condition: service_healthy
+      postgres_tenants:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - finops_network
+    deploy:
+      replicas: 3
+
+  celery_worker_azure:
+    build:
+      context: .
+      dockerfile: dockerfiles/Dockerfile.celery
+    command: celery -A multi_tenant_orchestrator worker --loglevel=info --queues=azure_collection --concurrency=4
+    environment:
+      - POSTGRES_MASTER_URL=postgresql://finops_admin:admin_password@postgres_master:5432/finops_master
+      - POSTGRES_TENANTS_URL=postgresql://finops_tenant_admin:tenant_admin_password@postgres_tenants:5432/finops_tenants
+      - REDIS_URL=redis://redis:6379/2
+      - CELERY_BROKER=amqp://finops:finops_password@rabbitmq:5672//
+    depends_on:
+      postgres_master:
+        condition: service_healthy
+      postgres_tenants:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - finops_network
+    deploy:
+      replicas: 2
+
+  celery_worker_aggregation:
+    build:
+      context: .
+      dockerfile: dockerfiles/Dockerfile.celery
+    command: celery -A multi_tenant_orchestrator worker --loglevel=info --queues=aggregation --concurrency=2
+    environment:
+      - POSTGRES_MASTER_URL=postgresql://finops_admin:admin_password@postgres_master:5432/finops_master
+      - POSTGRES_TENANTS_URL=postgresql://finops_tenant_admin:tenant_admin_password@postgres_tenants:5432/finops_tenants
+      - REDIS_URL=redis://redis:6379/2
+      - CELERY_BROKER=amqp://finops:finops_password@rabbitmq:5672//
+      - CLICKHOUSE_URL=http://finops_analytics:analytics_password@clickhouse:8123/finops_analytics
+    depends_on:
+      postgres_master:
+        condition: service_healthy
+      postgres_tenants:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    networks:
+      - finops_network
+    deploy:
+      replicas: 2
+
+  # === MONITORING ===
+  
+  prometheus:
+    image: prom/prometheus:latest
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+    networks:
+      - finops_network
+
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+    networks:
+      - finops_network
+
+  # === LOAD BALANCER ===
+  
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/ssl:/etc/nginx/ssl
+    depends_on:
+      - api_gateway
+    networks:
+      - finops_network
+
+  # === ANALYTICS SYNC ===
+  
+  analytics_sync:
+    build:
+      context: .
+      dockerfile: dockerfiles/Dockerfile.analytics
+    environment:
+      - POSTGRES_MASTER_URL=postgresql://finops_admin:admin_password@postgres_master:5432/finops_master
+      - POSTGRES_TENANTS_URL=postgresql://finops_tenant_admin:tenant_admin_password@postgres_tenants:5432/finops_tenants
+      - CLICKHOUSE_URL=http://finops_analytics:analytics_password@clickhouse:8123/finops_analytics
+      - REDIS_URL=redis://redis:6379/3
+    depends_on:
+      postgres_master:
+        condition: service_healthy
+      postgres_tenants:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - finops_network
+    deploy:
+      replicas: 1

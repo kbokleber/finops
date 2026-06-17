@@ -1,0 +1,51 @@
+networks:
+    default:
+       name: brigde
+       external: true
+
+
+services:
+   finops_worker_faz:
+      build: 
+        context: ../..
+        dockerfile: config/docker/Dockerfile
+      restart: unless-stopped
+      command: celery -A finops_celery worker -n celery_faz_update@%h --pidfile=%n.pid --loglevel=DEBUG --autoscale=10,1 --statedb=%n.state --time-limit=100000000000 --queues=celery,atualizar_nuvem --logfile=finops_executa.log
+      extra_hosts:
+        host.docker.internal: host-gateway
+      volumes:
+        - .:/finops_celery
+        - ../../.env:/finops/finops_celery/.env
+   finops_worker_faz2:
+      build: 
+        context: ../..
+        dockerfile: config/docker/Dockerfile
+      restart: unless-stopped
+      command: celery -A finops_celery worker -n celery_faz_update2@%h --pidfile=%n.pid --loglevel=DEBUG --autoscale=30,1 --statedb=%n.state --time-limit=100000000000 --queues=celery,atualizar_nuvem
+      extra_hosts:
+        host.docker.internal: host-gateway
+      volumes:
+        - .:/finops_celery
+        - ../../.env:/finops/finops_celery/.env
+   finops_worker_verifica:
+      build: 
+        context: ../..
+        dockerfile: config/docker/Dockerfile
+      restart: unless-stopped
+      command: celery -A finops_celery worker  -n celery_verifica_update@%h --pidfile=%n.pid --loglevel=DEBUG --autoscale=1,1 --statedb=%n.state --time-limit=100000000000 --queues=verifica_up_date --logfile=finops_verifica.log
+      extra_hosts:
+        host.docker.internal: host-gateway
+      volumes:
+        - .:/finops_celery
+        - ../../.env:/finops/finops_celery/.env
+   finops_celery_beat:
+      build: 
+        context: ../..
+        dockerfile: config/docker/Dockerfile
+      restart: unless-stopped
+      command: celery -A finops_celery beat  --pidfile=beat.pid --logfile=beat.log --loglevel=DEBUG
+      extra_hosts:
+        host.docker.internal: host-gateway
+      volumes:
+        - .:/finops_celery
+        - ../../.env:/finops/finops_celery/.env

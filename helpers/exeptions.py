@@ -1,0 +1,4 @@
+
+
+class ConectorVazio(Exception):
+    pass

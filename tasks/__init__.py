@@ -1,0 +1,5 @@
+from .get_oci import update_oci, task_verificar_provedores_oci_para_update
+from .get_azure import task_verificar_azure_para_atualizar, task_atulizar_azure
+from .get_aws import task_verificar_aws_update, task_atualizar_aws
+from .get_gcp_bigquery import task_verificar_gcp_update, task_atualizar_gcp
+from .up_date_resumo import update_tabela_resumo

@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Dashboard FinOps</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        .login-container {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+            max-width: 450px;
+            width: 100%;
+            margin: 20px;
+        }
+        
+        .login-header {
+            background: linear-gradient(45deg, #007bff, #0056b3);
+            color: white;
+            padding: 40px 30px 30px;
+            text-align: center;
+        }
+        
+        .login-body {
+            padding: 40px 30px;
+        }
+        
+        .logo-icon {
+            font-size: 3rem;
+            margin-bottom: 15px;
+            opacity: 0.9;
+        }
+        
+        .microsoft-btn {
+            background: linear-gradient(45deg, #0078d4, #106ebe);
+            border: none;
+            border-radius: 10px;
+            color: white;
+            padding: 15px 25px;
+            font-size: 16px;
+            font-weight: 500;
+            width: 100%;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0, 120, 212, 0.2);
+        }
+        
+        .microsoft-btn:hover {
+            background: linear-gradient(45deg, #106ebe, #005a9e);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 120, 212, 0.3);
+            color: white;
+        }
+        
+        .microsoft-btn:active {
+            transform: translateY(0);
+        }
+        
+        .divider {
+            margin: 30px 0;
+            position: relative;
+            text-align: center;
+        }
+        
+        .divider::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: #e0e0e0;
+        }
+        
+        .divider span {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 0 20px;
+            color: #666;
+            font-size: 14px;
+        }
+        
+        .feature-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        
+        .feature-list li {
+            padding: 8px 0;
+            color: #666;
+            font-size: 14px;
+        }
+        
+        .feature-list i {
+            color: #007bff;
+            width: 20px;
+            margin-right: 10px;
+        }
+        
+        .security-notice {
+            background: #f8f9fa;
+            border-left: 4px solid #007bff;
+            padding: 15px;
+            border-radius: 0 8px 8px 0;
+            margin-top: 20px;
+            font-size: 13px;
+            color: #666;
+        }
+        
+        .loading-spinner {
+            display: none;
+        }
+        
+        .btn-loading .spinner-border {
+            width: 1rem;
+            height: 1rem;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .login-container {
+            animation: fadeIn 0.6s ease-out;
+        }
+        
+        .alert {
+            border-radius: 10px;
+            border: none;
+            margin-bottom: 20px;
+        }
+        
+        .alert-success {
+            background: linear-gradient(45deg, #d4edda, #c3e6cb);
+            color: #155724;
+        }
+        
+        .alert-danger {
+            background: linear-gradient(45deg, #f8d7da, #f5c6cb);
+            color: #721c24;
+        }
+        
+        .alert-info {
+            background: linear-gradient(45deg, #d1ecf1, #bee5eb);
+            color: #0c5460;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <!-- Header -->
+        <div class="login-header">
+            <i class="fas fa-chart-line logo-icon"></i>
+            <h2 class="mb-2">Dashboard FinOps</h2>
+            <p class="mb-0 opacity-75">Monitoramento de Custos Cloud</p>
+        </div>
+        
+        <!-- Body -->
+        <div class="login-body">
+            <!-- Flash Messages -->
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show" role="alert">
+                            <i class="fas fa-{{ 'exclamation-triangle' if category == 'error' else 'info-circle' if category == 'info' else 'check-circle' }} me-2"></i>
+                            {{ message }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+            
+            <!-- Botão de Login Microsoft -->
+            {% if config.ENABLE_AZURE_AUTH %}
+                <div class="text-center mb-4">
+                    <button type="button" id="microsoft-login-btn" class="microsoft-btn">
+                        <i class="fab fa-microsoft me-3"></i>
+                        <span class="btn-text">Entrar com Microsoft</span>
+                        <div class="loading-spinner spinner-border spinner-border-sm ms-2" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </button>
+                </div>
+            {% else %}
+                <div class="text-center mb-4">
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle me-2"></i>
+                        <strong>Modo Demonstração</strong><br>
+                        Autenticação Azure AD desabilitada.<br>
+                        Você será redirecionado automaticamente.
+                    </div>
+                    <button type="button" id="demo-login-btn" class="microsoft-btn">
+                        <i class="fas fa-play me-3"></i>
+                        <span class="btn-text">Acessar Dashboard</span>
+                        <div class="loading-spinner spinner-border spinner-border-sm ms-2" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </button>
+                </div>
+            {% endif %}
+            
+            <!-- Divider -->
+            <div class="divider">
+                <span>Recursos do Sistema</span>
+            </div>
+            
+            <!-- Features -->
+            <ul class="feature-list">
+                <li><i class="fas fa-server"></i> Monitoramento de Provedores OCI</li>
+                <li><i class="fas fa-chart-bar"></i> Análise de Custos em Tempo Real</li>
+                <li><i class="fas fa-docker"></i> Status de Containers Docker</li>
+                <li><i class="fas fa-tasks"></i> Monitoramento de Jobs Celery</li>
+                <li><i class="fas fa-database"></i> Visualização de Dados Processados</li>
+            </ul>
+            
+            <!-- Security Notice -->
+            <div class="security-notice">
+                <i class="fas fa-shield-alt me-2"></i>
+                <strong>Segurança:</strong> Este sistema utiliza autenticação Azure AD para garantir acesso seguro aos dados de custos cloud.
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const microsoftBtn = document.getElementById('microsoft-login-btn');
+            const demoBtn = document.getElementById('demo-login-btn');
+            
+            // Se autenticação Azure está habilitada
+            if (microsoftBtn) {
+                const btnText = microsoftBtn.querySelector('.btn-text');
+                const spinner = microsoftBtn.querySelector('.loading-spinner');
+                
+                microsoftBtn.addEventListener('click', function() {
+                    // Mostrar loading
+                    btnText.textContent = 'Redirecionando...';
+                    spinner.style.display = 'inline-block';
+                    microsoftBtn.disabled = true;
+                    
+                    // Redirecionar para Microsoft
+                    setTimeout(() => {
+                        window.location.href = '{{ url_for("auth.microsoft_login") }}';
+                    }, 500);
+                });
+            }
+            
+            // Se modo demonstração
+            if (demoBtn) {
+                const btnText = demoBtn.querySelector('.btn-text');
+                const spinner = demoBtn.querySelector('.loading-spinner');
+                
+                demoBtn.addEventListener('click', function() {
+                    // Mostrar loading
+                    btnText.textContent = 'Acessando...';
+                    spinner.style.display = 'inline-block';
+                    demoBtn.disabled = true;
+                    
+                    // Redirecionar para dashboard
+                    setTimeout(() => {
+                        window.location.href = '/';
+                    }, 500);
+                });
+                
+                // Auto-redirect em modo demo após 2 segundos
+                setTimeout(() => {
+                    demoBtn.click();
+                }, 2000);
+            }
+            
+            // Verificar se já está autenticado
+            fetch('/auth/check')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.authenticated) {
+                        window.location.href = '/';
+                    }
+                })
+                .catch(console.error);
+        });
+    </script>
+</body>
+</html>

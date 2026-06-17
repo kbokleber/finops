@@ -1,0 +1,24 @@
+networks:
+    default:
+       name: brigde
+       external: true
+
+volumes:
+  grafana_data:
+
+services:
+    grafana:
+        image: grafana/grafana:10.2.0
+        ports:
+            - "3001:3000"
+        volumes:
+            - grafana_data:/var/lib/grafana
+            - ./certificados:/grafana_certs
+            - /root/grafana/grafana.db:/var/lib/grafana/grafana.db
+        user: root
+        environment:
+            - GF_SECURITY_ADMIN_PASSWORD=admin
+            - GF_PANELS_DISABLE_SANITIZE_HTML=true
+            - GF_SERVER_PROTOCOL=http
+            - GF_SERVER_ROOT_URL=https://devfinops.service.com.br
+

@@ -1,0 +1,18 @@
+[Unit]
+Description=FinOps Dashboard Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/finops
+ExecStart=/bin/bash -c "export PYTHONPATH=/root/finops && /usr/bin/python3 run_dashboard.py"
+Restart=always
+RestartSec=10
+StandardOutput=file:/root/finops/dashboard.log
+StandardError=file:/root/finops/dashboard.log
+Environment=PYTHONPATH=/root/finops
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+[Install]
+WantedBy=multi-user.target
