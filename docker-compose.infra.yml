@@ -1,0 +1,77 @@
+# Stack de INFRAESTRUTURA do FinOps.
+# Esta stack eh deployada UMA UNICA VEZ (ou raramente, quando o postgres
+# precisa de update). NAO eh reconstruida a cada `git push`.
+#
+# Os servicos aqui NAO tem `build:` - eles usam imagens pre-construidas
+# do registry do Coolify. As imagens sao geradas pelo script
+# `deploy/scripts/build-infra-images.sh`.
+#
+# CONVENCOES OBRIGATORIAS (codigo legado assume):
+#   - Servico postgres DEVE se chamar "postgres"  (CONEXAO_DB_URL)
+#   - Servico rabbitmq DEVE se chamar "rabbitmq" (broker hardcoded no celery.py)
+#   - Servico redis    DEVE se chamar "redis"    (REDIS_DB_URL)
+#
+# Network externa "finops-infra" - esta network eh compartilhada com a
+# stack do app (docker-compose.app.yml) para que os servicos do app
+# alcancem postgres/redis/rabbitmq pelo nome do servico.
+
+name: finops-infra
+
+networks:
+  finops-infra:
+    name: finops-infra
+    driver: bridge
+
+services:
+  postgres:
+    image: ${COOLIFY_REGISTRY:-finops}/postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-finopsdatabase}
+      POSTGRES_USER: ${POSTGRES_USER:-svc_finops}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD obrigatorio}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - finops-infra
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U svc_finops -d finopsdatabase"]
+      interval: 15s
+      timeout: 10s
+      retries: 30
+      start_period: 120s
+
+  redis:
+    image: ${COOLIFY_REGISTRY:-finops}/redis:7
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    networks:
+      - finops-infra
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: ${COOLIFY_REGISTRY:-finops}/rabbitmq:3
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-guest}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - finops-infra
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+volumes:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:

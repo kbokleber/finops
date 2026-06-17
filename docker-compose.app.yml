@@ -1,63 +1,27 @@
-# Docker Compose para Coolify Cloud.
-# Stack completa: Postgres 17 (com pg_repack + pg_partman), Redis, RabbitMQ,
-# dashboard Flask (gunicorn) e 4 processos Celery (3 workers + beat).
+# Stack de APLICACAO do FinOps.
+# Esta stack eh reconstruida a cada `git push` (build da imagem do app
+# Python). NAO inclui postgres/redis/rabbitmq - esses vivem na stack
+# `finops-infra` (docker-compose.infra.yml) e sao alcancados via
+# network externa compartilhada `finops-infra`.
+#
+# Esta stack CONECTA na network externa "finops-infra" - todos os
+# servicos do app entram nela para resolver `postgres`, `redis` e
+# `rabbitmq` por nome (DNS interno do Docker).
 #
 # CONVENCOES OBRIGATORIAS (codigo legado assume):
-#   - Servico postgres DEVE se chamar "postgres"  (CONEXAO_DB_URL)
-#   - Servico rabbitmq DEVE se chamar "rabbitmq" (broker hardcoded no celery.py)
-#   - Servico redis DEVE se chamar "redis"        (REDIS_DB_URL)
+#   - Hostnames `postgres`, `redis`, `rabbitmq` (vem da stack infra)
 #   - .env final em /finops/finops_celery/.env    (path absoluto lido por settings.py)
 #
 # Apenas o servico "dashboard" expoe porta para o Coolify gerar o dominio HTTPS.
 
-name: finops
+name: finops-app
+
+networks:
+  finops-infra:
+    name: finops-infra        # mesma network da stack infra
+    external: true            # NAO eh criada por este compose
 
 services:
-  postgres:
-    build:
-      context: .
-      dockerfile: docker/postgres/Dockerfile
-    image: finops/postgres:17
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-finopsdatabase}
-      POSTGRES_USER: ${POSTGRES_USER:-svc_finops}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD obrigatorio}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U svc_finops -d finopsdatabase"]
-      interval: 15s
-      timeout: 10s
-      retries: 30
-      start_period: 120s
-
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  rabbitmq:
-    image: rabbitmq:3-management
-    restart: unless-stopped
-    environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-guest}
-    volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "ping"]
-      interval: 15s
-      timeout: 10s
-      retries: 10
-
   dashboard:
     build:
       context: .
@@ -92,6 +56,8 @@ services:
       REDIS_DB_DATABASE: "0"
     ports:
       - "5000:5000"
+    networks:
+      - finops-infra
     depends_on:
       postgres:
         condition: service_healthy
@@ -137,6 +103,8 @@ services:
       REDIS_DB_DATABASE: "0"
     volumes:
       - app_logs:/finops/finops_celery/logs
+    networks:
+      - finops-infra
     depends_on:
       postgres:
         condition: service_healthy
@@ -176,6 +144,8 @@ services:
       REDIS_DB_DATABASE: "0"
     volumes:
       - app_logs:/finops/finops_celery/logs
+    networks:
+      - finops-infra
     depends_on:
       postgres:
         condition: service_healthy
@@ -214,6 +184,8 @@ services:
       REDIS_DB_DATABASE: "0"
     volumes:
       - app_logs:/finops/finops_celery/logs
+    networks:
+      - finops-infra
     depends_on:
       postgres:
         condition: service_healthy
@@ -250,6 +222,8 @@ services:
       REDIS_DB_DATABASE: "0"
     volumes:
       - app_logs:/finops/finops_celery/logs
+    networks:
+      - finops-infra
     depends_on:
       postgres:
         condition: service_healthy
@@ -259,7 +233,4 @@ services:
         condition: service_healthy
 
 volumes:
-  postgres_data:
-  redis_data:
-  rabbitmq_data:
   app_logs:
