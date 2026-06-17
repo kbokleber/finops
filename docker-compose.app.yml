@@ -7,12 +7,8 @@
 #   - rabbitmq: rabbitmq-s10h0gqm0uqy9jvywig5qrp2     (network s10h0gqm0uqy9jvywig5qrp2)
 #
 # Esta stack se anexa a essas 3 networks para alcancar os servicos pelos
-# NOMES DOS CONTAINERS (DNS interno do Docker), NAO por IP.
-#
-# CONVENCOES OBRIGATORIAS (codigo legado assume):
-#   - Hostnames `postgres`, `redis`, `rabbitmq` (mas como os containers do
-#     Coolify tem outros nomes, sobrescrevemos via `extra_hosts`)
-#   - .env final em /finops/finops_celery/.env
+# NOMES DOS CONTAINERS (DNS interno do Docker resolve automaticamente).
+# NAO precisa de `extra_hosts` (que espera IP literal, nao nome de container).
 #
 # Apenas o servico "dashboard" expoe porta para o Coolify gerar o dominio HTTPS.
 
@@ -36,13 +32,6 @@ services:
       dockerfile: docker/app/Dockerfile
     image: finops/app:latest
     restart: unless-stopped
-    # Mapeia os nomes canonicos (postgres, redis, rabbitmq) para os nomes
-    # reais dos containers do Coolify. Assim o codigo legado (celery.py,
-    # settings.py) que usa esses nomes funciona sem alteracao.
-    extra_hosts:
-      - "postgres:postgresql-ywq8py7anh5lmq2gfzb1xpva"
-      - "redis:coolify-redis"
-      - "rabbitmq:rabbitmq-s10h0gqm0uqy9jvywig5qrp2"
     command: >
       gunicorn --chdir /finops/finops_celery/dashboard
                --bind 0.0.0.0:5000
@@ -56,17 +45,17 @@ services:
       FLASK_ENV: ${FLASK_ENV:-production}
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY obrigatorio}
       ENABLE_AZURE_AUTH: ${ENABLE_AZURE_AUTH:-false}
-      DB_HOST: postgres
+      DB_HOST: postgresql-ywq8py7anh5lmq2gfzb1xpva
       DB_PORT: "5432"
       DB_USER: ${POSTGRES_USER:-svc_finops}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
       DB_NAME: ${POSTGRES_DB:-finopsdatabase}
-      CONEXAO_DB_URL: postgres
+      CONEXAO_DB_URL: postgresql-ywq8py7anh5lmq2gfzb1xpva
       CONEXAO_DB_PORT: "5432"
       CONEXAO_DB_USER: ${POSTGRES_USER:-svc_finops}
       CONEXAO_DB_SENHA: ${POSTGRES_PASSWORD}
       CONEXAO_DB_DATABASE: ${POSTGRES_DB:-finopsdatabase}
-      REDIS_DB_URL: redis
+      REDIS_DB_URL: coolify-redis
       REDIS_DB_PORT: "6379"
       REDIS_DB_DATABASE: "0"
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
@@ -89,10 +78,6 @@ services:
       dockerfile: docker/app/Dockerfile
     image: finops/app:latest
     restart: unless-stopped
-    extra_hosts:
-      - "postgres:postgresql-ywq8py7anh5lmq2gfzb1xpva"
-      - "redis:coolify-redis"
-      - "rabbitmq:rabbitmq-s10h0gqm0uqy9jvywig5qrp2"
     command: >
       celery -A finops_celery worker
              -n celery_verifica_update@$${HOSTNAME}
@@ -100,25 +85,25 @@ services:
              --autoscale=1,1
              --time-limit=100000000000
              --queues=verifica_up_date
-             --broker=amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/
+             --broker=amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq-s10h0gqm0uqy9jvywig5qrp2:5672/
              --logfile=/finops/finops_celery/logs/finops_verifica.log
     environment:
       PYTHONUNBUFFERED: "1"
-      DB_HOST: postgres
+      DB_HOST: postgresql-ywq8py7anh5lmq2gfzb1xpva
       DB_PORT: "5432"
       DB_USER: ${POSTGRES_USER:-svc_finops}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
       DB_NAME: ${POSTGRES_DB:-finopsdatabase}
-      CONEXAO_DB_URL: postgres
+      CONEXAO_DB_URL: postgresql-ywq8py7anh5lmq2gfzb1xpva
       CONEXAO_DB_PORT: "5432"
       CONEXAO_DB_USER: ${POSTGRES_USER:-svc_finops}
       CONEXAO_DB_SENHA: ${POSTGRES_PASSWORD}
       CONEXAO_DB_DATABASE: ${POSTGRES_DB:-finopsdatabase}
-      REDIS_DB_URL: redis
+      REDIS_DB_URL: coolify-redis
       REDIS_DB_PORT: "6379"
       REDIS_DB_DATABASE: "0"
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
-      CELERY_BROKER_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/
+      CELERY_BROKER_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq-s10h0gqm0uqy9jvywig5qrp2:5672/
     volumes:
       - app_logs:/finops/finops_celery/logs
     networks:
@@ -132,10 +117,6 @@ services:
       dockerfile: docker/app/Dockerfile
     image: finops/app:latest
     restart: unless-stopped
-    extra_hosts:
-      - "postgres:postgresql-ywq8py7anh5lmq2gfzb1xpva"
-      - "redis:coolify-redis"
-      - "rabbitmq:rabbitmq-s10h0gqm0uqy9jvywig5qrp2"
     command: >
       celery -A finops_celery worker
              -n celery_faz_update@$${HOSTNAME}
@@ -143,25 +124,25 @@ services:
              --autoscale=10,1
              --time-limit=100000000000
              --queues=celery,atualizar_nuvem
-             --broker=amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/
+             --broker=amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq-s10h0gqm0uqy9jvywig5qrp2:5672/
              --logfile=/finops/finops_celery/logs/finops_executa.log
     environment:
       PYTHONUNBUFFERED: "1"
-      DB_HOST: postgres
+      DB_HOST: postgresql-ywq8py7anh5lmq2gfzb1xpva
       DB_PORT: "5432"
       DB_USER: ${POSTGRES_USER:-svc_finops}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
       DB_NAME: ${POSTGRES_DB:-finopsdatabase}
-      CONEXAO_DB_URL: postgres
+      CONEXAO_DB_URL: postgresql-ywq8py7anh5lmq2gfzb1xpva
       CONEXAO_DB_PORT: "5432"
       CONEXAO_DB_USER: ${POSTGRES_USER:-svc_finops}
       CONEXAO_DB_SENHA: ${POSTGRES_PASSWORD}
       CONEXAO_DB_DATABASE: ${POSTGRES_DB:-finopsdatabase}
-      REDIS_DB_URL: redis
+      REDIS_DB_URL: coolify-redis
       REDIS_DB_PORT: "6379"
       REDIS_DB_DATABASE: "0"
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
-      CELERY_BROKER_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/
+      CELERY_BROKER_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq-s10h0gqm0uqy9jvywig5qrp2:5672/
     volumes:
       - app_logs:/finops/finops_celery/logs
     networks:
@@ -175,10 +156,6 @@ services:
       dockerfile: docker/app/Dockerfile
     image: finops/app:latest
     restart: unless-stopped
-    extra_hosts:
-      - "postgres:postgresql-ywq8py7anh5lmq2gfzb1xpva"
-      - "redis:coolify-redis"
-      - "rabbitmq:rabbitmq-s10h0gqm0uqy9jvywig5qrp2"
     command: >
       celery -A finops_celery worker
              -n celery_faz_update2@$${HOSTNAME}
@@ -186,24 +163,24 @@ services:
              --autoscale=30,1
              --time-limit=100000000000
              --queues=celery,atualizar_nuvem
-             --broker=amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/
+             --broker=amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq-s10h0gqm0uqy9jvywig5qrp2:5672/
     environment:
       PYTHONUNBUFFERED: "1"
-      DB_HOST: postgres
+      DB_HOST: postgresql-ywq8py7anh5lmq2gfzb1xpva
       DB_PORT: "5432"
       DB_USER: ${POSTGRES_USER:-svc_finops}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
       DB_NAME: ${POSTGRES_DB:-finopsdatabase}
-      CONEXAO_DB_URL: postgres
+      CONEXAO_DB_URL: postgresql-ywq8py7anh5lmq2gfzb1xpva
       CONEXAO_DB_PORT: "5432"
       CONEXAO_DB_USER: ${POSTGRES_USER:-svc_finops}
       CONEXAO_DB_SENHA: ${POSTGRES_PASSWORD}
       CONEXAO_DB_DATABASE: ${POSTGRES_DB:-finopsdatabase}
-      REDIS_DB_URL: redis
+      REDIS_DB_URL: coolify-redis
       REDIS_DB_PORT: "6379"
       REDIS_DB_DATABASE: "0"
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
-      CELERY_BROKER_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/
+      CELERY_BROKER_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq-s10h0gqm0uqy9jvywig5qrp2:5672/
     volumes:
       - app_logs:/finops/finops_celery/logs
     networks:
@@ -217,33 +194,29 @@ services:
       dockerfile: docker/app/Dockerfile
     image: finops/app:latest
     restart: unless-stopped
-    extra_hosts:
-      - "postgres:postgresql-ywq8py7anh5lmq2gfzb1xpva"
-      - "redis:coolify-redis"
-      - "rabbitmq:rabbitmq-s10h0gqm0uqy9jvywig5qrp2"
     command: >
       celery -A finops_celery beat
              --loglevel=INFO
-             --broker=amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/
+             --broker=amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq-s10h0gqm0uqy9jvywig5qrp2:5672/
              --logfile=/finops/finops_celery/logs/beat.log
              --pidfile=/tmp/beat.pid
     environment:
       PYTHONUNBUFFERED: "1"
-      DB_HOST: postgres
+      DB_HOST: postgresql-ywq8py7anh5lmq2gfzb1xpva
       DB_PORT: "5432"
       DB_USER: ${POSTGRES_USER:-svc_finops}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
       DB_NAME: ${POSTGRES_DB:-finopsdatabase}
-      CONEXAO_DB_URL: postgres
+      CONEXAO_DB_URL: postgresql-ywq8py7anh5lmq2gfzb1xpva
       CONEXAO_DB_PORT: "5432"
       CONEXAO_DB_USER: ${POSTGRES_USER:-svc_finops}
       CONEXAO_DB_SENHA: ${POSTGRES_PASSWORD}
       CONEXAO_DB_DATABASE: ${POSTGRES_DB:-finopsdatabase}
-      REDIS_DB_URL: redis
+      REDIS_DB_URL: coolify-redis
       REDIS_DB_PORT: "6379"
       REDIS_DB_DATABASE: "0"
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
-      CELERY_BROKER_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/
+      CELERY_BROKER_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq-s10h0gqm0uqy9jvywig5qrp2:5672/
     volumes:
       - app_logs:/finops/finops_celery/logs
     networks:
