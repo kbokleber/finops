@@ -63,6 +63,9 @@ services:
       REDIS_DB_PORT: "6379"
       REDIS_DB_DATABASE: "0"
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      # Mesmo broker dos workers, para que o /api/celery-status
+      # consiga usar a API inspect do Celery
+      CELERY_BROKER_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/
     ports:
       - "5000:5000"
     networks:
@@ -195,11 +198,21 @@ services:
       dockerfile: docker/app/Dockerfile
     image: finops/app:latest
     restart: unless-stopped
+    # Watchdog: reinicia o beat automaticamente se ele crashar.
+    # O beat trava silenciosamente em alguns ambientes (race condition no
+    # init_loader durante o boot). O loop bash garante que se o processo
+    # morrer, outro e iniciado em ate 5s.
     command: >
-      celery -A finops_celery beat
-             --loglevel=INFO
-             --logfile=/finops/finops_celery/logs/beat.log
-             --pidfile=/tmp/beat.pid
+      sh -c "while true; do
+               echo '[beat-watchdog] Starting celery beat at $(date -u +%FT%TZ)' >> /finops/finops_celery/logs/beat.log;
+               celery -A finops_celery beat
+                      --loglevel=INFO
+                      --logfile=/finops/finops_celery/logs/beat.log
+                      --pidfile=/tmp/beat.pid;
+               EXIT_CODE=$$?;
+               echo \"[beat-watchdog] Beat exited with code $$EXIT_CODE at $(date -u +%FT%TZ), restarting in 5s...\" >> /finops/finops_celery/logs/beat.log;
+               sleep 5;
+             done"
     environment:
       PYTHONUNBUFFERED: "1"
       DB_HOST: postgresql

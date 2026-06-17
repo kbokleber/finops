@@ -241,14 +241,24 @@ def api_celery_status():
     """API para status do Celery - usa API Python do Celery (sem docker exec)"""
     try:
         # Importa o app do Celery do mesmo package finops_celery
-        # O WORKDIR=/finops/finops_celery garante que esse import funciona
+        # Em dev (compose) o codigo fica em /app, e finops_celery e um
+        # subpackage de /app. Em prod (Coolify) o WORKDIR=/finops/finops_celery.
+        # Adicionamos os dois caminhos possiveis para funcionar nos dois.
         import sys
-        if '/finops/finops_celery' not in sys.path:
-            sys.path.insert(0, '/finops/finops_celery')
-        from finops_celery.celery import app as celery_app
+        for path in ('/finops/finops_celery', '/app', '/app/finops'):
+            if path not in sys.path:
+                sys.path.insert(0, path)
+        try:
+            from finops_celery.celery import app as celery_app
+        except ImportError:
+            # Fallback: celery.py na raiz do projeto
+            from celery import app as celery_app
 
         # Usar a API inspect do Celery (funciona de dentro do container, sem docker exec)
-        inspect = celery_app.control.inspect(timeout=5)
+        # Timeout curto (2s) porque o endpoint e chamado a cada refresh do dashboard;
+        # se o broker demora para responder, preferimos mostrar "OFFLINE" rapido
+        # do que segurar a UI.
+        inspect = celery_app.control.inspect(timeout=2)
 
         # Stats retorna info de cada worker (online ou nao)
         stats = inspect.stats() or {}
