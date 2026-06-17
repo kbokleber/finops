@@ -1,42 +1,57 @@
 # Postgres 17 com extensoes usadas em producao.
-# Necessario porque o dump referencia os schemas repack (pg_repack)
-# e partman (pg_partman). Sem isso o pg_restore falha.
+# Build em duas etapas para isolar falhas e minimizar o tamanho final.
 #
-# Estrategia de duas etapas:
-#   1) Instalar postgresql-17-partman via PGDG (binario pre-construido)
-#   2) Compilar pg_repack do source (nao tem binario confiavel no PGDG)
+# O dump de producao referencia os schemas:
+#   - repack  (pg_repack) - funcoes, sequences e tabelas
+#   - partman (pg_partman) - funcoes, sequences e tabelas
+# Sem essas extensoes instaladas, o pg_restore falha.
 
-FROM postgres:17-bookworm
+# ----------------------------------------------------------------------------
+# Etapa 1: builder com toolchain de compilacao
+# Instala pg_repack do source (PGDG traz python3.11 inteiro como dep,
+# o que infla demais a imagem final).
+# ----------------------------------------------------------------------------
+FROM postgres:17-bookworm AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Etapa 1: instalar pg_partman (binario) e dependencias minimas para
-# compilar pg_repack. Mantem python3 fora para nao arrastar 100MB de deps.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        postgresql-17-partman \
         build-essential \
         libpq-dev \
         postgresql-server-dev-17 \
         ca-certificates \
-        wget \
+        curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Etapa 2: compilar pg_repack 1.5.3 do source oficial.
-# Limpa o source depois para manter a imagem final pequena.
+# Baixa e compila pg_repack 1.5.3 (suporta PG 17)
 WORKDIR /tmp
-RUN wget -q https://github.com/reorg/pg_repack/archive/refs/tags/ver_1.5.3.tar.gz \
-    && tar xzf ver_1.5.3.tar.gz \
+RUN curl -fsSL -o pg_repack.tar.gz \
+        https://github.com/reorg/pg_repack/archive/refs/tags/ver_1.5.3.tar.gz \
+    && tar xzf pg_repack.tar.gz \
     && cd pg_repack-ver_1.5.3 \
     && make \
     && make install \
-    && cd .. \
-    && rm -rf ver_1.5.3.tar.gz pg_repack-ver_1.5.3 \
-    && apt-get purge -y --auto-remove \
-        build-essential \
-        wget \
-    && apt-get clean \
+    && cd /tmp \
+    && rm -rf pg_repack.tar.gz pg_repack-ver_1.5.3
+
+# ----------------------------------------------------------------------------
+# Etapa 2: imagem final
+# - Copia pg_repack compilado do builder
+# - Instala pg_partman via PGDG (binario pre-construido)
+# ----------------------------------------------------------------------------
+FROM postgres:17-bookworm
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        postgresql-17-partman \
     && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /usr/lib/postgresql/17/lib/pg_repack.so /usr/lib/postgresql/17/lib/
+COPY --from=builder /usr/share/postgresql/17/extension/pg_repack.control /usr/share/postgresql/17/extension/
+COPY --from=builder /usr/share/postgresql/17/extension/pg_repack--*.sql /usr/share/postgresql/17/extension/
 
 # Cria as extensoes no banco default (POSTGRES_DB) na inicializacao.
 COPY docker/postgres/init-extensions.sh /docker-entrypoint-initdb.d/10-extensions.sh
