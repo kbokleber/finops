@@ -1,11 +1,15 @@
 # Stack de APLICACAO do FinOps.
-# Inclui:
-#   - postgres: imagem custom kbokleber/custom-postgres:17-extensions (com pg_repack + pg_partman)
+# Conecta nos servicos de INFRA gerenciados SEPARADAMENTE pelo Coolify:
+#   - postgres: kbokleber/custom-postgres:17-extensions (recurso Coolify)
 #   - redis:    one-click do Coolify (alias "redis" na network "coolify")
 #   - rabbitmq: one-click do Coolify (alias "rabbitmq" na network "s10h0gqm0uqy9jvywig5qrp2")
 #
-# O Redis e RabbitMQ sao recursos one-click do Coolify (gerenciados separadamente).
-# O Postgres roda dentro desta stack, controlado pelo nosso compose.
+# O Postgres e gerenciado como recurso separado no Coolify (mais limpo:
+# backup via UI, restart independente, escala separada).
+# A stack finops soh se conecta nele via network compartilhada.
+#
+# Cada servico de infra (Coolify) cria um ALIAS DNS simples (postgresql, redis,
+# rabbitmq), entao usamos os nomes curtos.
 #
 # O broker do Celery e configurado via env var CELERY_BROKER_URL
 # (Celery 5.x NAO aceita --broker no comando `celery worker`).
@@ -15,8 +19,9 @@
 name: finops-app
 
 networks:
-  default:
-    name: finops-net
+  postgres-net:
+    external: true
+    name: ${POSTGRES_NETWORK:-finops-pg-net}
   redis-net:
     external: true
     name: coolify
@@ -24,30 +29,7 @@ networks:
     external: true
     name: s10h0gqm0uqy9jvywig5qrp2
 
-volumes:
-  pg_data:
-    name: finops-pg-data
-
 services:
-  postgres:
-    image: kbokleber/custom-postgres:17-extensions
-    container_name: finops-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-svc_finops}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB:-finopsdatabase}
-    volumes:
-      - pg_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-    networks:
-      - default
-
   dashboard:
     build:
       context: .
@@ -67,12 +49,12 @@ services:
       FLASK_ENV: ${FLASK_ENV:-production}
       SECRET_KEY: ${SECRET_KEY:-please-change-me-in-production-32-chars-min}
       ENABLE_AZURE_AUTH: ${ENABLE_AZURE_AUTH:-false}
-      DB_HOST: postgres
+      DB_HOST: postgresql
       DB_PORT: "5432"
       DB_USER: ${POSTGRES_USER:-svc_finops}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
       DB_NAME: ${POSTGRES_DB:-finopsdatabase}
-      CONEXAO_DB_URL: postgres
+      CONEXAO_DB_URL: postgresql
       CONEXAO_DB_PORT: "5432"
       CONEXAO_DB_USER: ${POSTGRES_USER:-svc_finops}
       CONEXAO_DB_SENHA: ${POSTGRES_PASSWORD}
@@ -84,7 +66,7 @@ services:
     ports:
       - "5000:5000"
     networks:
-      - default
+      - postgres-net
       - redis-net
       - rabbitmq-net
     healthcheck:
@@ -110,12 +92,12 @@ services:
              --logfile=/finops/finops_celery/logs/finops_verifica.log
     environment:
       PYTHONUNBUFFERED: "1"
-      DB_HOST: postgres
+      DB_HOST: postgresql
       DB_PORT: "5432"
       DB_USER: ${POSTGRES_USER:-svc_finops}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
       DB_NAME: ${POSTGRES_DB:-finopsdatabase}
-      CONEXAO_DB_URL: postgres
+      CONEXAO_DB_URL: postgresql
       CONEXAO_DB_PORT: "5432"
       CONEXAO_DB_USER: ${POSTGRES_USER:-svc_finops}
       CONEXAO_DB_SENHA: ${POSTGRES_PASSWORD}
@@ -128,7 +110,7 @@ services:
     volumes:
       - app_logs:/finops/finops_celery/logs
     networks:
-      - default
+      - postgres-net
       - redis-net
       - rabbitmq-net
 
@@ -148,12 +130,12 @@ services:
              --logfile=/finops/finops_celery/logs/finops_executa.log
     environment:
       PYTHONUNBUFFERED: "1"
-      DB_HOST: postgres
+      DB_HOST: postgresql
       DB_PORT: "5432"
       DB_USER: ${POSTGRES_USER:-svc_finops}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
       DB_NAME: ${POSTGRES_DB:-finopsdatabase}
-      CONEXAO_DB_URL: postgres
+      CONEXAO_DB_URL: postgresql
       CONEXAO_DB_PORT: "5432"
       CONEXAO_DB_USER: ${POSTGRES_USER:-svc_finops}
       CONEXAO_DB_SENHA: ${POSTGRES_PASSWORD}
@@ -166,7 +148,7 @@ services:
     volumes:
       - app_logs:/finops/finops_celery/logs
     networks:
-      - default
+      - postgres-net
       - redis-net
       - rabbitmq-net
 
@@ -185,12 +167,12 @@ services:
              --queues=celery,atualizar_nuvem
     environment:
       PYTHONUNBUFFERED: "1"
-      DB_HOST: postgres
+      DB_HOST: postgresql
       DB_PORT: "5432"
       DB_USER: ${POSTGRES_USER:-svc_finops}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
       DB_NAME: ${POSTGRES_DB:-finopsdatabase}
-      CONEXAO_DB_URL: postgres
+      CONEXAO_DB_URL: postgresql
       CONEXAO_DB_PORT: "5432"
       CONEXAO_DB_USER: ${POSTGRES_USER:-svc_finops}
       CONEXAO_DB_SENHA: ${POSTGRES_PASSWORD}
@@ -203,7 +185,7 @@ services:
     volumes:
       - app_logs:/finops/finops_celery/logs
     networks:
-      - default
+      - postgres-net
       - redis-net
       - rabbitmq-net
 
@@ -220,12 +202,12 @@ services:
              --pidfile=/tmp/beat.pid
     environment:
       PYTHONUNBUFFERED: "1"
-      DB_HOST: postgres
+      DB_HOST: postgresql
       DB_PORT: "5432"
       DB_USER: ${POSTGRES_USER:-svc_finops}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
       DB_NAME: ${POSTGRES_DB:-finopsdatabase}
-      CONEXAO_DB_URL: postgres
+      CONEXAO_DB_URL: postgresql
       CONEXAO_DB_PORT: "5432"
       CONEXAO_DB_USER: ${POSTGRES_USER:-svc_finops}
       CONEXAO_DB_SENHA: ${POSTGRES_PASSWORD}
@@ -238,7 +220,7 @@ services:
     volumes:
       - app_logs:/finops/finops_celery/logs
     networks:
-      - default
+      - postgres-net
       - redis-net
       - rabbitmq-net
 
