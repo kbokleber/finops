@@ -19,7 +19,7 @@ RUN apt-get update \
 # Cria as extensoes no banco default (POSTGRES_DB) na inicializacao.
 # O entrypoint oficial do postgres roda todos os scripts .sql em
 # /docker-entrypoint-initdb.d/ na primeira subida.
-COPY init-extensions.sh /docker-entrypoint-initdb.d/10-extensions.sh
+COPY docker/postgres/init-extensions.sh /docker-entrypoint-initdb.d/10-extensions.sh
 
 HEALTHCHECK --interval=10s --timeout=5s --retries=10 \
     CMD pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
