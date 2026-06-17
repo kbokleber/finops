@@ -157,7 +157,7 @@ def comprehensive_oci_diagnosis():
         sys.path.append('/finops/finops_celery')
         
         try:
-            from tasks.get_oci import task_verificar_provedores_oci_para_update
+            from finops_celery.tasks.get_oci import task_verificar_provedores_oci_para_update
             
             for i in range(3):
                 print(f"      Execução {i+1}/3...")

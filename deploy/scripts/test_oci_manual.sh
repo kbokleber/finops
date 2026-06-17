@@ -12,7 +12,7 @@ python3 -c \"
 import sys
 sys.path.insert(0, '/finops_celery')
 from helpers.conexao_banco import ConexaoBancoDeDados
-from tasks.get_oci import task_verificar_provedores_oci_para_update
+from finops_celery.tasks.get_oci import task_verificar_provedores_oci_para_update
 import asyncio
 
 print('Iniciando processamento OCI...')
@@ -38,7 +38,7 @@ for oci_para_update in ocis_precisam_de_update:
     print(f'Processando provedor {oci_para_update[\\\"id_provedor\\\"]}...')
     
     # Importar e executar a tarefa
-    from tasks.get_oci import update_oci
+    from finops_celery.tasks.get_oci import update_oci
     
     if oci_para_update['datatime_ultimo_update'] is not None:
         date_iso_format = oci_para_update['datatime_ultimo_update'].isoformat()
