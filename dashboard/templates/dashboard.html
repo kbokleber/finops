@@ -597,7 +597,7 @@
                     <div class="text-center">
                         <span class="badge ${workersOnline > 0 ? 'bg-success' : 'bg-danger'}">${status.status}</span>
                     </div>
-                    <small class="text-muted d-block text-center mt-2">Última verificação: ${formatDate(status.last_check)}</small>
+                    <small class="text-muted d-block text-center mt-2">Última verificação: ${formatDateUTCToBrasilia(status.last_check)}</small>
                 `;
                 
                 celeryDiv.innerHTML = html;
