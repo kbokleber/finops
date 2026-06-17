@@ -216,9 +216,10 @@ def api_recent_data():
         with conn.cursor(cursor_factory=RealDictCursor) as cursor:
             # Dados dos últimos 7 dias - CORRIGIDO: removido filtro cloudproviderid
             cursor.execute("""
-                SELECT data as dia, COUNT(*) as registros, 
+                SELECT data as dia, COUNT(*) as registros,
+                       COUNT(DISTINCT id_recurso) as recursos_distintos,
                        SUM(custo_total) as custo_total
-                FROM utilizacao_recurso 
+                FROM utilizacao_recurso
                 WHERE data >= CURRENT_DATE - INTERVAL '7 days'
                 GROUP BY data ORDER BY data DESC
                 LIMIT 7
@@ -237,78 +238,48 @@ def api_recent_data():
 @app.route('/api/celery-status')
 @require_auth
 def api_celery_status():
-    """API para status do Celery"""
+    """API para status do Celery - usa API Python do Celery (sem docker exec)"""
     try:
-        import subprocess
-        
-        # Verificar se containers estão rodando
-        try:
-            cmd = "docker exec finops-finops_worker_verifica-1 celery -A finops_celery inspect stats --timeout=10"
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=15)
-            
-            if result.returncode != 0:
-                error_msg = result.stderr.strip()
-                if "is not running" in error_msg or "No such container" in error_msg:
-                    return jsonify({
-                        'active_tasks': 0,
-                        'scheduled_tasks': 0,
-                        'workers_online': 0,
-                        'status': 'WORKERS OFFLINE - Containers parados',
-                        'last_check': convert_to_brasilia(datetime.utcnow()),
-                        'error': 'Containers Docker não estão rodando'
-                    })
-                else:
-                    return jsonify({
-                        'active_tasks': 0,
-                        'scheduled_tasks': 0,
-                        'workers_online': 0,
-                        'status': 'ERRO CELERY',
-                        'last_check': convert_to_brasilia(datetime.utcnow()),
-                        'error': f'Erro ao conectar: {error_msg}'
-                    })
-            
-            # Analisar resultado do Celery
-            output = result.stdout
-            
-            # Contar workers online (cada worker aparece como "->  worker_name@container: OK")
-            workers_online = output.count("OK")
-            
-            # Verificar tarefas ativas
-            cmd_active = "docker exec finops-finops_worker_verifica-1 celery -A finops_celery inspect active --timeout=10"
-            result_active = subprocess.run(cmd_active, shell=True, capture_output=True, text=True, timeout=15)
-            
-            active_tasks = 0
-            if result_active.returncode == 0:
-                active_output = result_active.stdout.lower()
-                if "finops_celery.tasks.get_oci" in active_output:
-                    active_tasks = 1
-            
-            # Determinar status
-            if workers_online == 0:
-                status = "WORKERS OFFLINE"
-            elif active_tasks > 0:
-                status = "Processamento ATIVO"
-            else:
-                status = f"{workers_online} Workers Online - Aguardando tarefas"
-            
-            return jsonify({
-                'active_tasks': active_tasks,
-                'scheduled_tasks': 0,
-                'workers_online': workers_online,
-                'status': status,
-                'last_check': convert_to_brasilia(datetime.utcnow())
+        # Importa o app do Celery do mesmo package finops_celery
+        # O WORKDIR=/finops/finops_celery garante que esse import funciona
+        import sys
+        if '/finops/finops_celery' not in sys.path:
+            sys.path.insert(0, '/finops/finops_celery')
+        from finops_celery.celery import app as celery_app
+
+        # Usar a API inspect do Celery (funciona de dentro do container, sem docker exec)
+        inspect = celery_app.control.inspect(timeout=5)
+
+        # Stats retorna info de cada worker (online ou nao)
+        stats = inspect.stats() or {}
+        workers_online = len(stats)
+
+        # Active retorna tarefas em execucao
+        active = inspect.active() or {}
+        active_tasks = sum(len(tasks) for tasks in active.values())
+
+        # Scheduled retorna tarefas agendadas
+        scheduled = inspect.scheduled() or {}
+        scheduled_tasks = sum(len(tasks) for tasks in scheduled.values())
+
+        # Determinar status
+        if workers_online == 0:
+            status = "WORKERS OFFLINE - Nenhum worker conectado no broker"
+        elif active_tasks > 0:
+            status = f"Processamento ATIVO - {active_tasks} tarefa(s) em execucao"
+        else:
+            status = f"{workers_online} Workers Online - Aguardando tarefas"
+
+        return jsonify({
+            'active_tasks': active_tasks,
+            'scheduled_tasks': scheduled_tasks,
+            'workers_online': workers_online,
+            'status': status,
+            'last_check': convert_to_brasilia(datetime.utcnow()),
+            'workers': list(stats.keys())
+        })
             })
-            
-        except subprocess.TimeoutExpired:
-            return jsonify({
-                'active_tasks': 0,
-                'scheduled_tasks': 0,
-                'workers_online': 0,
-                'status': 'TIMEOUT - Workers não respondem',
-                'last_check': convert_to_brasilia(datetime.utcnow()),
-                'error': 'Timeout ao verificar workers'
-            })
-            
+
     except Exception as e:
         return jsonify({
             'active_tasks': 0,
