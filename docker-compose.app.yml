@@ -10,6 +10,9 @@
 # os nomes curtos (postgresql, redis, rabbitmq) ao inves dos UUIDs longos.
 # NAO precisa de `extra_hosts` (que espera IP literal, nao nome de container).
 #
+# O broker do Celery (RabbitMQ) e configurado via env var CELERY_BROKER_URL
+# (Celery 5.x NAO aceita --broker no comando `celery worker`).
+#
 # Apenas o servico "dashboard" expoe porta para o Coolify gerar o dominio HTTPS.
 
 name: finops-app
@@ -85,7 +88,6 @@ services:
              --autoscale=1,1
              --time-limit=100000000000
              --queues=verifica_up_date
-             --broker=amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/
              --logfile=/finops/finops_celery/logs/finops_verifica.log
     environment:
       PYTHONUNBUFFERED: "1"
@@ -124,7 +126,6 @@ services:
              --autoscale=10,1
              --time-limit=100000000000
              --queues=celery,atualizar_nuvem
-             --broker=amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/
              --logfile=/finops/finops_celery/logs/finops_executa.log
     environment:
       PYTHONUNBUFFERED: "1"
@@ -163,7 +164,6 @@ services:
              --autoscale=30,1
              --time-limit=100000000000
              --queues=celery,atualizar_nuvem
-             --broker=amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/
     environment:
       PYTHONUNBUFFERED: "1"
       DB_HOST: postgresql
@@ -197,7 +197,6 @@ services:
     command: >
       celery -A finops_celery beat
              --loglevel=INFO
-             --broker=amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/
              --logfile=/finops/finops_celery/logs/beat.log
              --pidfile=/tmp/beat.pid
     environment:
