@@ -41,5 +41,5 @@ RUN wget -q https://github.com/reorg/pg_repack/archive/refs/tags/ver_1.5.3.tar.g
 # Cria as extensoes no banco default (POSTGRES_DB) na inicializacao.
 COPY docker/postgres/init-extensions.sh /docker-entrypoint-initdb.d/10-extensions.sh
 
-HEALTHCHECK --interval=15s --timeout=10s --retries=30 --start_period=120s \
+HEALTHCHECK --interval=15s --timeout=10s --retries=30 --start-period=120s \
     CMD pg_isready -U svc_finops -d finopsdatabase
