@@ -1,25 +1,33 @@
 # Stack de APLICACAO do FinOps.
-# Esta stack eh reconstruida a cada `git push` (build da imagem do app
-# Python). NAO inclui postgres/redis/rabbitmq - esses vivem na stack
-# `finops-infra` (docker-compose.infra.yml) e sao alcancados via
-# network externa compartilhada `finops-infra`.
+# Conecta nos servicos one-click do Coolify via networks Docker compartilhadas.
 #
-# Esta stack CONECTA na network externa "finops-infra" - todos os
-# servicos do app entram nela para resolver `postgres`, `redis` e
-# `rabbitmq` por nome (DNS interno do Docker).
+# OS 3 SERVICOS DE INFRA (recursos one-click do Coolify):
+#   - postgres: postgresql-ywq8py7anh5lmq2gfzb1xpva  (network ywq8py7anh5lmq2gfzb1xpva)
+#   - redis:    coolify-redis                          (network coolify)
+#   - rabbitmq: rabbitmq-s10h0gqm0uqy9jvywig5qrp2     (network s10h0gqm0uqy9jvywig5qrp2)
+#
+# Esta stack se anexa a essas 3 networks para alcancar os servicos pelos
+# NOMES DOS CONTAINERS (DNS interno do Docker), NAO por IP.
 #
 # CONVENCOES OBRIGATORIAS (codigo legado assume):
-#   - Hostnames `postgres`, `redis`, `rabbitmq` (vem da stack infra)
-#   - .env final em /finops/finops_celery/.env    (path absoluto lido por settings.py)
+#   - Hostnames `postgres`, `redis`, `rabbitmq` (mas como os containers do
+#     Coolify tem outros nomes, sobrescrevemos via `extra_hosts`)
+#   - .env final em /finops/finops_celery/.env
 #
 # Apenas o servico "dashboard" expoe porta para o Coolify gerar o dominio HTTPS.
 
 name: finops-app
 
 networks:
-  finops-infra:
-    name: finops-infra        # mesma network da stack infra
-    external: true            # NAO eh criada por este compose
+  postgres-net:
+    external: true
+    name: ywq8py7anh5lmq2gfzb1xpva
+  redis-net:
+    external: true
+    name: coolify
+  rabbitmq-net:
+    external: true
+    name: s10h0gqm0uqy9jvywig5qrp2
 
 services:
   dashboard:
@@ -28,6 +36,13 @@ services:
       dockerfile: docker/app/Dockerfile
     image: finops/app:latest
     restart: unless-stopped
+    # Mapeia os nomes canonicos (postgres, redis, rabbitmq) para os nomes
+    # reais dos containers do Coolify. Assim o codigo legado (celery.py,
+    # settings.py) que usa esses nomes funciona sem alteracao.
+    extra_hosts:
+      - "postgres:postgresql-ywq8py7anh5lmq2gfzb1xpva"
+      - "redis:coolify-redis"
+      - "rabbitmq:rabbitmq-s10h0gqm0uqy9jvywig5qrp2"
     command: >
       gunicorn --chdir /finops/finops_celery/dashboard
                --bind 0.0.0.0:5000
@@ -54,17 +69,13 @@ services:
       REDIS_DB_URL: redis
       REDIS_DB_PORT: "6379"
       REDIS_DB_DATABASE: "0"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
     ports:
       - "5000:5000"
     networks:
-      - finops-infra
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
+      - postgres-net
+      - redis-net
+      - rabbitmq-net
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/api/summary', timeout=5)"]
       interval: 30s
@@ -78,6 +89,10 @@ services:
       dockerfile: docker/app/Dockerfile
     image: finops/app:latest
     restart: unless-stopped
+    extra_hosts:
+      - "postgres:postgresql-ywq8py7anh5lmq2gfzb1xpva"
+      - "redis:coolify-redis"
+      - "rabbitmq:rabbitmq-s10h0gqm0uqy9jvywig5qrp2"
     command: >
       celery -A finops_celery worker
              -n celery_verifica_update@$${HOSTNAME}
@@ -85,6 +100,7 @@ services:
              --autoscale=1,1
              --time-limit=100000000000
              --queues=verifica_up_date
+             --broker=amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/
              --logfile=/finops/finops_celery/logs/finops_verifica.log
     environment:
       PYTHONUNBUFFERED: "1"
@@ -101,17 +117,14 @@ services:
       REDIS_DB_URL: redis
       REDIS_DB_PORT: "6379"
       REDIS_DB_DATABASE: "0"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      CELERY_BROKER_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/
     volumes:
       - app_logs:/finops/finops_celery/logs
     networks:
-      - finops-infra
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
+      - postgres-net
+      - redis-net
+      - rabbitmq-net
 
   worker_faz:
     build:
@@ -119,6 +132,10 @@ services:
       dockerfile: docker/app/Dockerfile
     image: finops/app:latest
     restart: unless-stopped
+    extra_hosts:
+      - "postgres:postgresql-ywq8py7anh5lmq2gfzb1xpva"
+      - "redis:coolify-redis"
+      - "rabbitmq:rabbitmq-s10h0gqm0uqy9jvywig5qrp2"
     command: >
       celery -A finops_celery worker
              -n celery_faz_update@$${HOSTNAME}
@@ -126,6 +143,7 @@ services:
              --autoscale=10,1
              --time-limit=100000000000
              --queues=celery,atualizar_nuvem
+             --broker=amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/
              --logfile=/finops/finops_celery/logs/finops_executa.log
     environment:
       PYTHONUNBUFFERED: "1"
@@ -142,17 +160,14 @@ services:
       REDIS_DB_URL: redis
       REDIS_DB_PORT: "6379"
       REDIS_DB_DATABASE: "0"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      CELERY_BROKER_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/
     volumes:
       - app_logs:/finops/finops_celery/logs
     networks:
-      - finops-infra
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
+      - postgres-net
+      - redis-net
+      - rabbitmq-net
 
   worker_faz2:
     build:
@@ -160,6 +175,10 @@ services:
       dockerfile: docker/app/Dockerfile
     image: finops/app:latest
     restart: unless-stopped
+    extra_hosts:
+      - "postgres:postgresql-ywq8py7anh5lmq2gfzb1xpva"
+      - "redis:coolify-redis"
+      - "rabbitmq:rabbitmq-s10h0gqm0uqy9jvywig5qrp2"
     command: >
       celery -A finops_celery worker
              -n celery_faz_update2@$${HOSTNAME}
@@ -167,6 +186,7 @@ services:
              --autoscale=30,1
              --time-limit=100000000000
              --queues=celery,atualizar_nuvem
+             --broker=amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/
     environment:
       PYTHONUNBUFFERED: "1"
       DB_HOST: postgres
@@ -182,17 +202,14 @@ services:
       REDIS_DB_URL: redis
       REDIS_DB_PORT: "6379"
       REDIS_DB_DATABASE: "0"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      CELERY_BROKER_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/
     volumes:
       - app_logs:/finops/finops_celery/logs
     networks:
-      - finops-infra
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
+      - postgres-net
+      - redis-net
+      - rabbitmq-net
 
   celery_beat:
     build:
@@ -200,9 +217,14 @@ services:
       dockerfile: docker/app/Dockerfile
     image: finops/app:latest
     restart: unless-stopped
+    extra_hosts:
+      - "postgres:postgresql-ywq8py7anh5lmq2gfzb1xpva"
+      - "redis:coolify-redis"
+      - "rabbitmq:rabbitmq-s10h0gqm0uqy9jvywig5qrp2"
     command: >
       celery -A finops_celery beat
              --loglevel=INFO
+             --broker=amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/
              --logfile=/finops/finops_celery/logs/beat.log
              --pidfile=/tmp/beat.pid
     environment:
@@ -220,17 +242,14 @@ services:
       REDIS_DB_URL: redis
       REDIS_DB_PORT: "6379"
       REDIS_DB_DATABASE: "0"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      CELERY_BROKER_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/
     volumes:
       - app_logs:/finops/finops_celery/logs
     networks:
-      - finops-infra
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
+      - postgres-net
+      - redis-net
+      - rabbitmq-net
 
 volumes:
   app_logs:
