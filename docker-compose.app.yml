@@ -1,6 +1,6 @@
 # Stack de APLICACAO do FinOps.
 # Inclui:
-#   - postgres: imagem custom kbokleber/custom-postgres:latest (com pg_repack + pg_partman)
+#   - postgres: imagem custom kbokleber/custom-postgres:17-extensions (com pg_repack + pg_partman)
 #   - redis:    one-click do Coolify (alias "redis" na network "coolify")
 #   - rabbitmq: one-click do Coolify (alias "rabbitmq" na network "s10h0gqm0uqy9jvywig5qrp2")
 #
@@ -30,7 +30,7 @@ volumes:
 
 services:
   postgres:
-    image: kbokleber/custom-postgres:latest
+    image: kbokleber/custom-postgres:17-extensions
     container_name: finops-postgres
     restart: unless-stopped
     environment:
