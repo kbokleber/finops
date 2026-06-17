@@ -1,17 +1,19 @@
 # Imagem compartilhada por dashboard Flask e workers Celery.
 # Cada servico no compose define seu proprio `command:`.
 #
-# Estrutura final dentro da imagem (espelha o Dockerfile legacy do projeto):
+# Estrutura final dentro da imagem:
 #   /finops/finops_celery/         <- raiz do projeto copiada aqui
 #       celery.py                  <- celery app (module finops_celery.celery)
 #       settings.py                <- le /finops/finops_celery/.env
-#       __init__.py
-#       tasks/                     <- tasks reais
+#       __init__.py                <- reexporta `app` (from .celery import app)
+#       tasks/                     <- tasks reais (package finops_celery.tasks)
+#       helpers/                   <- helpers (package finops_celery.helpers)
 #       dashboard/                 <- app Flask
-#       finops_celery/.env         <- settings.py procura esse path absoluto
+#       .env                       <- placeholder; Coolify injeta env vars
 #
-# WORKDIR=/finops faz com que `celery -A finops_celery worker`
-# encontre o package `finops_celery/` em sys.path.
+# WORKDIR=/finops/finops_celery/ garante que `celery -A finops_celery worker`
+# resolva para o package real `finops_celery/` (e nao para o diretorio-pai,
+# que viraria um namespace package vazio).
 
 FROM python:3.11-slim-bookworm
 
@@ -55,6 +57,10 @@ RUN useradd --create-home --shell /bin/bash app \
     && chown -R app:app /finops
 USER app
 
-WORKDIR /finops
+# CWD passa a ser o diretorio-raiz copiado. Assim:
+#   - `celery -A finops_celery` resolve para o package REAL (com __init__.py)
+#   - `gunicorn --chdir /finops/finops_celery/dashboard wsgi:app` continua OK
+#   - Imports absolutos `from finops_celery.tasks import ...` continuam OK
+WORKDIR /finops/finops_celery
 
 EXPOSE 5000

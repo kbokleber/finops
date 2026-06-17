@@ -1,22 +1,15 @@
 from celery import Celery
 from .settings import config
-from datetime import datetime
 import urllib.parse
 
 database_password = urllib.parse.quote_plus(config.get('CONEXAO_DB_SENHA', ''))
 database_name = urllib.parse.quote_plus(config.get('CONEXAO_DB_DATABASE', ''))
 database_user = urllib.parse.quote_plus(config.get('CONEXAO_DB_USER', ''))
 
-with open("/tmp/debug_log.txt", "a") as log:
-    log.write(f"[{datetime.now()}] NOVO LOG1\n")
-
 app = Celery('finops',
             broker='amqp://guest:guest@rabbitmq:5672/',
             backend=f'db+postgresql://{database_user}:{database_password}@{config.get("CONEXAO_DB_URL", "")}/{database_name}',
             include=['finops_celery.tasks'])
-            
-with open("/tmp/debug_log.txt", "a") as log:
-    log.write(f"[{datetime.now()}] NOVO LOG2\n")            
 
 
 # Optional configuration, see the application user guide.

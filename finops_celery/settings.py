@@ -17,13 +17,20 @@ def load_env_file(file_path):
     return config
 
 # Carregar variáveis do .env
-config = load_env_file("/finops/finops_celery/.env")
+_file_cfg = load_env_file("/finops/finops_celery/.env")
+
+# Variaveis do ambiente (os.environ) tem prioridade sobre o .env.
+def _g(key, default=None):
+    return os.environ.get(key) or _file_cfg.get(key) or default
+
+# Alias `config` para manter compatibilidade com celery.py (from .settings import config).
+config = {**_file_cfg, **{k: v for k, v in os.environ.items()}}
 
 # Configurações do banco
-DATABASE_URL = f"postgresql://{config.get('CONEXAO_DB_USER')}:{config.get('CONEXAO_DB_SENHA')}@{config.get('CONEXAO_DB_URL')}:{config.get('CONEXAO_DB_PORT')}/{config.get('CONEXAO_DB_DATABASE')}"
+DATABASE_URL = f"postgresql://{_g('CONEXAO_DB_USER')}:{_g('CONEXAO_DB_SENHA')}@{_g('CONEXAO_DB_URL')}:{_g('CONEXAO_DB_PORT')}/{_g('CONEXAO_DB_DATABASE')}"
 
 # Configurações do Redis
-REDIS_URL = f"redis://{config.get('REDIS_DB_URL')}:{config.get('REDIS_DB_PORT')}/{config.get('REDIS_DB_DATABASE')}"
+REDIS_URL = f"redis://{_g('REDIS_DB_URL', 'redis')}:{_g('REDIS_DB_PORT', '6379')}/{_g('REDIS_DB_DATABASE', '0')}"
 
 # Configurações Celery
 CELERY_BROKER_URL = REDIS_URL
