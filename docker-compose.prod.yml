@@ -26,10 +26,11 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
+      test: ["CMD-SHELL", "pg_isready -U svc_finops -d finopsdatabase"]
+      interval: 15s
+      timeout: 10s
+      retries: 30
+      start_period: 120s
 
   redis:
     image: redis:7-alpine
@@ -57,40 +58,6 @@ services:
       timeout: 10s
       retries: 10
 
-  # Gera /finops/finops_celery/.env a partir de env vars do Coolify
-  # antes de qualquer servico que dependa do .env subir.
-  # Usa a imagem oficial do python (qualquer uma com python3).
-  env-init:
-    image: python:3.11-slim-bookworm
-    user: root
-    command:
-      - sh
-      - -c
-      - |
-        set -e
-        mkdir -p /work
-        cat > /work/.env <<EOF
-        CONEXAO_DB_URL=postgres
-        CONEXAO_DB_DATABASE=$${POSTGRES_DB:-finopsdatabase}
-        CONEXAO_DB_USER=$${POSTGRES_USER:-svc_finops}
-        CONEXAO_DB_SENHA=$${POSTGRES_PASSWORD}
-        CONEXAO_DB_PORT=5432
-        REDIS_DB_URL=redis
-        REDIS_DB_USER=
-        REDIS_DB_SENHA=
-        REDIS_DB_DATABASE=0
-        REDIS_DB_PORT=6379
-        EOF
-        echo "--- .env gerado ---"
-        cat /work/.env
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-finopsdatabase}
-      POSTGRES_USER: ${POSTGRES_USER:-svc_finops}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    volumes:
-      - shared_env:/work
-    restart: "no"
-
   dashboard:
     build:
       context: .
@@ -98,21 +65,31 @@ services:
     image: finops/app:latest
     restart: unless-stopped
     command: >
-      sh -c "cp /env/.env /finops/finops_celery/.env &&
-             gunicorn --chdir /finops/finops_celery/dashboard
-                      --bind 0.0.0.0:5000
-                      --workers 2
-                      --timeout 120
-                      --access-logfile -
-                      --error-logfile -
-                      wsgi:app"
+      gunicorn --chdir /finops/finops_celery/dashboard
+               --bind 0.0.0.0:5000
+               --workers 2
+               --timeout 120
+               --access-logfile -
+               --error-logfile -
+               wsgi:app
     environment:
       PYTHONUNBUFFERED: "1"
       FLASK_ENV: ${FLASK_ENV:-production}
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY obrigatorio}
       ENABLE_AZURE_AUTH: ${ENABLE_AZURE_AUTH:-false}
-    volumes:
-      - shared_env:/env:ro
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: ${POSTGRES_USER:-svc_finops}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_NAME: ${POSTGRES_DB:-finopsdatabase}
+      CONEXAO_DB_URL: postgres
+      CONEXAO_DB_PORT: "5432"
+      CONEXAO_DB_USER: ${POSTGRES_USER:-svc_finops}
+      CONEXAO_DB_SENHA: ${POSTGRES_PASSWORD}
+      CONEXAO_DB_DATABASE: ${POSTGRES_DB:-finopsdatabase}
+      REDIS_DB_URL: redis
+      REDIS_DB_PORT: "6379"
+      REDIS_DB_DATABASE: "0"
     ports:
       - "5000:5000"
     depends_on:
@@ -122,8 +99,6 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-      env-init:
-        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/api/summary', timeout=5)"]
       interval: 30s
@@ -138,18 +113,29 @@ services:
     image: finops/app:latest
     restart: unless-stopped
     command: >
-      sh -c "cp /env/.env /finops/finops_celery/.env &&
-             celery -A finops_celery worker
-                    -n celery_verifica_update@$${HOSTNAME}
-                    --loglevel=INFO
-                    --autoscale=1,1
-                    --time-limit=100000000000
-                    --queues=verifica_up_date
-                    --logfile=/finops/finops_celery/logs/finops_verifica.log"
+      celery -A finops_celery worker
+             -n celery_verifica_update@$${HOSTNAME}
+             --loglevel=INFO
+             --autoscale=1,1
+             --time-limit=100000000000
+             --queues=verifica_up_date
+             --logfile=/finops/finops_celery/logs/finops_verifica.log
     environment:
       PYTHONUNBUFFERED: "1"
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: ${POSTGRES_USER:-svc_finops}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_NAME: ${POSTGRES_DB:-finopsdatabase}
+      CONEXAO_DB_URL: postgres
+      CONEXAO_DB_PORT: "5432"
+      CONEXAO_DB_USER: ${POSTGRES_USER:-svc_finops}
+      CONEXAO_DB_SENHA: ${POSTGRES_PASSWORD}
+      CONEXAO_DB_DATABASE: ${POSTGRES_DB:-finopsdatabase}
+      REDIS_DB_URL: redis
+      REDIS_DB_PORT: "6379"
+      REDIS_DB_DATABASE: "0"
     volumes:
-      - shared_env:/env:ro
       - app_logs:/finops/finops_celery/logs
     depends_on:
       postgres:
@@ -158,8 +144,6 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-      env-init:
-        condition: service_completed_successfully
 
   worker_faz:
     build:
@@ -168,18 +152,29 @@ services:
     image: finops/app:latest
     restart: unless-stopped
     command: >
-      sh -c "cp /env/.env /finops/finops_celery/.env &&
-             celery -A finops_celery worker
-                    -n celery_faz_update@$${HOSTNAME}
-                    --loglevel=INFO
-                    --autoscale=10,1
-                    --time-limit=100000000000
-                    --queues=celery,atualizar_nuvem
-                    --logfile=/finops/finops_celery/logs/finops_executa.log"
+      celery -A finops_celery worker
+             -n celery_faz_update@$${HOSTNAME}
+             --loglevel=INFO
+             --autoscale=10,1
+             --time-limit=100000000000
+             --queues=celery,atualizar_nuvem
+             --logfile=/finops/finops_celery/logs/finops_executa.log
     environment:
       PYTHONUNBUFFERED: "1"
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: ${POSTGRES_USER:-svc_finops}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_NAME: ${POSTGRES_DB:-finopsdatabase}
+      CONEXAO_DB_URL: postgres
+      CONEXAO_DB_PORT: "5432"
+      CONEXAO_DB_USER: ${POSTGRES_USER:-svc_finops}
+      CONEXAO_DB_SENHA: ${POSTGRES_PASSWORD}
+      CONEXAO_DB_DATABASE: ${POSTGRES_DB:-finopsdatabase}
+      REDIS_DB_URL: redis
+      REDIS_DB_PORT: "6379"
+      REDIS_DB_DATABASE: "0"
     volumes:
-      - shared_env:/env:ro
       - app_logs:/finops/finops_celery/logs
     depends_on:
       postgres:
@@ -188,8 +183,6 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-      env-init:
-        condition: service_completed_successfully
 
   worker_faz2:
     build:
@@ -198,17 +191,28 @@ services:
     image: finops/app:latest
     restart: unless-stopped
     command: >
-      sh -c "cp /env/.env /finops/finops_celery/.env &&
-             celery -A finops_celery worker
-                    -n celery_faz_update2@$${HOSTNAME}
-                    --loglevel=INFO
-                    --autoscale=30,1
-                    --time-limit=100000000000
-                    --queues=celery,atualizar_nuvem"
+      celery -A finops_celery worker
+             -n celery_faz_update2@$${HOSTNAME}
+             --loglevel=INFO
+             --autoscale=30,1
+             --time-limit=100000000000
+             --queues=celery,atualizar_nuvem
     environment:
       PYTHONUNBUFFERED: "1"
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: ${POSTGRES_USER:-svc_finops}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_NAME: ${POSTGRES_DB:-finopsdatabase}
+      CONEXAO_DB_URL: postgres
+      CONEXAO_DB_PORT: "5432"
+      CONEXAO_DB_USER: ${POSTGRES_USER:-svc_finops}
+      CONEXAO_DB_SENHA: ${POSTGRES_PASSWORD}
+      CONEXAO_DB_DATABASE: ${POSTGRES_DB:-finopsdatabase}
+      REDIS_DB_URL: redis
+      REDIS_DB_PORT: "6379"
+      REDIS_DB_DATABASE: "0"
     volumes:
-      - shared_env:/env:ro
       - app_logs:/finops/finops_celery/logs
     depends_on:
       postgres:
@@ -217,8 +221,6 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-      env-init:
-        condition: service_completed_successfully
 
   celery_beat:
     build:
@@ -227,15 +229,26 @@ services:
     image: finops/app:latest
     restart: unless-stopped
     command: >
-      sh -c "cp /env/.env /finops/finops_celery/.env &&
-             celery -A finops_celery beat
-                    --loglevel=INFO
-                    --logfile=/finops/finops_celery/logs/beat.log
-                    --pidfile=/tmp/beat.pid"
+      celery -A finops_celery beat
+             --loglevel=INFO
+             --logfile=/finops/finops_celery/logs/beat.log
+             --pidfile=/tmp/beat.pid
     environment:
       PYTHONUNBUFFERED: "1"
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: ${POSTGRES_USER:-svc_finops}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_NAME: ${POSTGRES_DB:-finopsdatabase}
+      CONEXAO_DB_URL: postgres
+      CONEXAO_DB_PORT: "5432"
+      CONEXAO_DB_USER: ${POSTGRES_USER:-svc_finops}
+      CONEXAO_DB_SENHA: ${POSTGRES_PASSWORD}
+      CONEXAO_DB_DATABASE: ${POSTGRES_DB:-finopsdatabase}
+      REDIS_DB_URL: redis
+      REDIS_DB_PORT: "6379"
+      REDIS_DB_DATABASE: "0"
     volumes:
-      - shared_env:/env:ro
       - app_logs:/finops/finops_celery/logs
     depends_on:
       postgres:
@@ -244,12 +257,9 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-      env-init:
-        condition: service_completed_successfully
 
 volumes:
   postgres_data:
   redis_data:
   rabbitmq_data:
   app_logs:
-  shared_env:
