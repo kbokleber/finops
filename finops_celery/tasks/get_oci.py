@@ -1,6 +1,7 @@
 import pytz
 import oci
 import csv
+import hashlib
 import psycopg
 from psycopg.rows import dict_row
 from psycopg import sql
@@ -47,32 +48,68 @@ def gravar_csv_consumo_oci_banco(consumo_csv: csv.DictReader, id_provedor: int, 
     from finops_celery.settings import REDIS_URL
     redis_con = redis.Redis.from_url(REDIS_URL, decode_responses=True)
     
-    with cursor.copy('COPY utilizacao_recurso (id_recurso, id_cliente, id_contrato, "data", quantidade_utilizada, custo_total, id_do_provedor, cloudproviderid ) FROM STDIN') as copy:
-        # Limite minimo de data: aceita formatos com e sem timezone.
-        # CSV do OCI pode vir com 'Z' (UTC) ou sem timezone (naive UTC).
-        cutoff_naive = datetime.datetime(2024, 1, 1)
-        cutoff_aware = datetime.datetime(2024, 1, 1, tzinfo=utc)
-        for consumo in consumo_csv:
-            id_recurso = get_id_item(sku=consumo['product/Description'],
-                                     servico=consumo['product/service'],
-                                     regiao=consumo['product/region'],
-                                     tags=get_oci_tags(consumo),
-                                     recurso=consumo['product/resourceId'],
-                                     id_provedor=id_provedor,
-                                     redis_con=redis_con
-                                     )
-            # Parse robusto: aceita 'Z', '+00:00' ou naive (assume UTC)
-            raw_date = consumo['lineItem/intervalUsageStart']
-            if raw_date.endswith('Z'):
-                dt_consumo = datetime.datetime.fromisoformat(raw_date[:-1] + '+00:00')
-            else:
-                dt_consumo = datetime.datetime.fromisoformat(raw_date)
-                if dt_consumo.tzinfo is None:
-                    dt_consumo = dt_consumo.replace(tzinfo=utc)
-            # Comparacao sempre aware vs aware
-            if dt_consumo >= cutoff_aware:
-                copy.write_row([id_recurso, id_cliente, id_contrato, consumo['lineItem/intervalUsageStart'],
-                           consumo['usage/billedQuantity'], consumo['cost/myCost'], consumo['lineItem/referenceNo'], id_provedor])
+    # Usamos INSERT em vez de COPY porque a tabela nao tem UNIQUE constraint
+    # e arquivos de CSVs diferentes (ex: cost-csv-001.gz, cost-csv-002.gz) podem
+    # conter dados do mesmo dia/registro. O filtro ON CONFLICT (com hash unico)
+    # garante que nao haja duplicacao.
+    cutoff_aware = datetime.datetime(2024, 1, 1, tzinfo=utc)
+    rows_to_insert = []
+    for consumo in consumo_csv:
+        id_recurso = get_id_item(sku=consumo['product/Description'],
+                                 servico=consumo['product/service'],
+                                 regiao=consumo['product/region'],
+                                 tags=get_oci_tags(consumo),
+                                 recurso=consumo['product/resourceId'],
+                                 id_provedor=id_provedor,
+                                 redis_con=redis_con
+                                 )
+        # Parse robusto: aceita 'Z', '+00:00' ou naive (assume UTC)
+        raw_date = consumo['lineItem/intervalUsageStart']
+        if raw_date.endswith('Z'):
+            dt_consumo = datetime.datetime.fromisoformat(raw_date[:-1] + '+00:00')
+        else:
+            dt_consumo = datetime.datetime.fromisoformat(raw_date)
+            if dt_consumo.tzinfo is None:
+                dt_consumo = dt_consumo.replace(tzinfo=utc)
+        # Comparacao sempre aware vs aware
+        if dt_consumo >= cutoff_aware:
+            # Calcula data (somente parte de data) para o INSERT
+            data_only = dt_consumo.date()
+            # Hash unico baseado em (id_recurso, data, cloudproviderid)
+            # Se o registro ja existir, sera ignorado (nao duplica)
+            hash_unico = hashlib.sha256(
+                f"{id_recurso}|{data_only}|{id_provedor}".encode()
+            ).hexdigest()[:32]
+            rows_to_insert.append((
+                id_recurso, id_cliente, id_contrato, data_only,
+                consumo['usage/billedQuantity'], consumo['cost/myCost'],
+                consumo['lineItem/referenceNo'], id_provedor, hash_unico
+            ))
+
+    if rows_to_insert:
+        # executemany com ON CONFLICT DO NOTHING - requer UNIQUE INDEX
+        # na coluna hash_unico. Crie o indice se nao existir.
+        # Tambem cria a coluna se nao existir (idempotente).
+        try:
+            cursor.execute("""
+                ALTER TABLE utilizacao_recurso
+                ADD COLUMN IF NOT EXISTS hash_unico varchar(32)
+            """)
+            cursor.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_utilizacao_recurso_hash_unico
+                ON utilizacao_recurso (hash_unico)
+            """)
+        except Exception as e:
+            print(f"aviso ao criar coluna/indice: {e}")
+
+        cursor.executemany("""
+            INSERT INTO utilizacao_recurso
+            (id_recurso, id_cliente, id_contrato, "data",
+             quantidade_utilizada, custo_total, id_do_provedor,
+             cloudproviderid, hash_unico)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (hash_unico) DO NOTHING
+        """, rows_to_insert)
 
     cursor.execute(
         'update provedor_nuvem set jobs_restantes = jobs_restantes-1 where id_provedor = %s RETURNING jobs_restantes', (id_provedor,))
