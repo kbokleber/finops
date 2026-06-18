@@ -67,6 +67,11 @@ services:
       # Mesmo broker dos workers, para que o /api/celery-status
       # consiga usar a API inspect do Celery
       CELERY_BROKER_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/
+    # Socket do Docker do host montado no container para o endpoint
+    # /api/docker-containers conseguir listar os containers do host.
+    # O docker CLI estatico esta instalado no Dockerfile.
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     ports:
       - "5000:5000"
     networks:
