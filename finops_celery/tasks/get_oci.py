@@ -42,8 +42,10 @@ def gravar_csv_consumo_oci_banco(consumo_csv: csv.DictReader, id_provedor: int, 
     conexao_banco = ConexaoBancoDeDados()
     conexao_banco.set_cursor()
     cursor = conexao_banco.get_cursor()
-    redis_con = redis.Redis(host=config['REDIS_DB_URL'], port=6379,
-                            db=0, decode_responses=True)
+    # Conexao Redis com autenticacao: Redis 6+ exige 'default' como user
+    # quando so senha e fornecida. Usa o REDIS_URL centralizado do settings.
+    from finops_celery.settings import REDIS_URL
+    redis_con = redis.Redis.from_url(REDIS_URL, decode_responses=True)
     
     with cursor.copy('COPY utilizacao_recurso (id_recurso, id_cliente, id_contrato, "data", quantidade_utilizada, custo_total, id_do_provedor, cloudproviderid ) FROM STDIN') as copy:
         for consumo in consumo_csv:
