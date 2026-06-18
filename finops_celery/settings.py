@@ -30,8 +30,11 @@ config = {**_file_cfg, **{k: v for k, v in os.environ.items()}}
 DATABASE_URL = f"postgresql://{_g('CONEXAO_DB_USER')}:{_g('CONEXAO_DB_SENHA')}@{_g('CONEXAO_DB_URL')}:{_g('CONEXAO_DB_PORT')}/{_g('CONEXAO_DB_DATABASE')}"
 
 # Configurações do Redis (com senha opcional via REDIS_PASSWORD ou REDIS_DB_SENHA)
+# Redis 6+ ACL exige formato `default:<senha>` quando o servidor tem ACL habilitado
+# e nao foi configurado usuario customizado. Se REDIS_DB_USER for definido, usa ele.
 _redis_password = _g('REDIS_PASSWORD') or _g('REDIS_DB_SENHA')
-_redis_auth = f":{_redis_password}@" if _redis_password else ""
+_redis_user = _g('REDIS_DB_USER') or 'default'
+_redis_auth = f"{_redis_user}:{_redis_password}@" if _redis_password else ""
 REDIS_URL = f"redis://{_redis_auth}{_g('REDIS_DB_URL', 'redis')}:{_g('REDIS_DB_PORT', '6379')}/{_g('REDIS_DB_DATABASE', '0')}"
 
 # Configurações Celery

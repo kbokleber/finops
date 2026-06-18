@@ -128,7 +128,7 @@ services:
       dockerfile: config/docker/Dockerfile
     image: finops-worker:local
     restart: unless-stopped
-    command: celery -A finops_celery beat --pidfile=beat.pid --logfile=beat.log --loglevel=INFO
+    command: celery -A finops_celery beat --pidfile=/tmp/beat.pid --loglevel=INFO -S celery.beat.Scheduler
     volumes:
       - ../..:/finops_celery
       - ../../finops_celery/.env:/finops/finops_celery/.env
@@ -165,6 +165,7 @@ services:
       REDIS_DB_URL: redis
       REDIS_DB_PORT: 6379
       REDIS_DB_DATABASE: 0
+      REDIS_DB_USER: default
       REDIS_PASSWORD: r32rYsBpYqovJxFwNn4NxqhhHYIFeI1FtNirKHIcmapCI7Jdc4CdTuwmCM0FF2gm
       CELERY_BROKER_URL: amqp://guest:guest@rabbitmq:5672/
       ENABLE_AZURE_AUTH: "false"
