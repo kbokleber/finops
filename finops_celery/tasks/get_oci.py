@@ -11,6 +11,7 @@ from decimal import ROUND_DOWN, ROUND_UP, Decimal
 from finops_celery.celery import app
 from finops_celery.helpers.descompactar_gzp_para_csv import transform_gz_to_dict
 from finops_celery.helpers.conexao_banco import ConexaoBancoDeDados
+from finops_celery.helpers.deletar_mes import deletar_mes
 from finops_celery.helpers.gerencia_de_recurso import get_id_item
 from finops_celery.tasks.up_date_resumo import update_tabela_resumo
 import csv
@@ -38,7 +39,12 @@ def get_oci_tags(consumo: dict) -> dict:
     return tags
 
 
-def gravar_csv_consumo_oci_banco(consumo_csv: csv.DictReader, id_provedor: int, id_cliente: int, id_contrato: int):
+def gravar_csv_consumo_oci_banco(consumo_csv: csv.DictReader, id_provedor: int, id_cliente: int, id_contrato: int, ano_referencia: str, mes_referencia: str):
+    # Deduplicacao: deleta todos os registros do provedor/contrato/mes/ano
+    # antes de inserir via COPY. Isso garante que reprocessamentos nao
+    # gerem duplicatas. Mesma rotina usada por get_aws.py.
+    deletar_mes(id_provedor, mes_referencia, ano_referencia, id_contrato)
+
     conexao_banco = ConexaoBancoDeDados()
     conexao_banco.set_cursor()
     cursor = conexao_banco.get_cursor()
@@ -47,9 +53,8 @@ def gravar_csv_consumo_oci_banco(consumo_csv: csv.DictReader, id_provedor: int, 
     from finops_celery.settings import REDIS_URL
     redis_con = redis.Redis.from_url(REDIS_URL, decode_responses=True)
 
-    # Padrao original: usa COPY para insercao em massa. Datas sao inseridas
-    # como veio do CSV (string). A rotina de remover duplicata eh feita
-    # separadamente (nao bloqueia o insert).
+    # Insere em massa via COPY. Datas sao inseridas como string ISO
+    # (a coluna eh DATE mas o cast automatico do psycopg funciona).
     with cursor.copy('COPY utilizacao_recurso (id_recurso, id_cliente, id_contrato, "data", quantidade_utilizada, custo_total, id_do_provedor, cloudproviderid ) FROM STDIN') as copy:
         for consumo in consumo_csv:
             id_recurso = get_id_item(sku=consumo['product/Description'],
@@ -73,11 +78,11 @@ def gravar_csv_consumo_oci_banco(consumo_csv: csv.DictReader, id_provedor: int, 
     redis_con.close()
 
 @app.task(bind=True)
-def task_download_arquivos_gravar(self, config: dict, reporting_namespace: str, reporting_bucket: str, nome_arquivo: str, id_provedor: int, id_cliente: int, id_contrato: int):
+def task_download_arquivos_gravar(self, config: dict, reporting_namespace: str, reporting_bucket: str, nome_arquivo: str, id_provedor: int, id_cliente: int, id_contrato: int, ano_referencia: str, mes_referencia: str):
     data_csv = transform_gz_to_dict(download_arquivo_oci(
         config, reporting_namespace, reporting_bucket, nome_arquivo))
     gravar_csv_consumo_oci_banco(
-        data_csv, id_provedor, id_cliente, id_contrato)
+        data_csv, id_provedor, id_cliente, id_contrato, ano_referencia, mes_referencia)
 
 
 @app.task(bind=True)
@@ -97,8 +102,13 @@ def update_oci(self, id_cliente: int, id_contrato: int, id_provedor: int, config
 
     for row in report_bucket_objects.data.objects:
         if row.name.rsplit('/', 1)[-2] == 'reports/cost-csv' and row.time_modified.replace(tzinfo=utc) > datetime.datetime.fromisoformat(iso_date_time_min).replace(tzinfo=utc):
+            # Extrai ano/mes do time_modified do arquivo (formato 'YYYY-MM-DD...')
+            # Usado por gravar_csv_consumo_oci_banco para deletar registros
+            # do mesmo mes/ano antes de inserir (rotina de deduplicacao).
+            ano_ref = row.time_modified.strftime('%Y')
+            mes_ref = row.time_modified.strftime('%m')
             task_download_arquivos_gravar.apply_async(
-                args=[config_provedor, reporting_namespace, config_provedor['tenancy'], row.name, id_provedor, id_cliente, id_contrato])
+                args=[config_provedor, reporting_namespace, config_provedor['tenancy'], row.name, id_provedor, id_cliente, id_contrato, ano_ref, mes_ref])
             cursor.execute(
                 'update provedor_nuvem set jobs_restantes = jobs_restantes+1 where id_provedor = %s', (id_provedor,))
             
