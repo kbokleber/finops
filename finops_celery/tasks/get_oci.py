@@ -11,7 +11,7 @@ from decimal import ROUND_DOWN, ROUND_UP, Decimal
 from finops_celery.celery import app
 from finops_celery.helpers.descompactar_gzp_para_csv import transform_gz_to_dict
 from finops_celery.helpers.conexao_banco import ConexaoBancoDeDados
-from finops_celery.helpers.deletar_mes import deletar_mes
+from finops_celery.helpers.deletar_dia import deletar_dia
 from finops_celery.helpers.gerencia_de_recurso import get_id_item
 from finops_celery.tasks.up_date_resumo import update_tabela_resumo
 import csv
@@ -39,12 +39,44 @@ def get_oci_tags(consumo: dict) -> dict:
     return tags
 
 
-def gravar_csv_consumo_oci_banco(consumo_csv: csv.DictReader, id_provedor: int, id_cliente: int, id_contrato: int, ano_referencia: str, mes_referencia: str):
-    # Deduplicacao: deleta todos os registros do provedor/contrato/mes/ano
-    # antes de inserir via COPY. Isso garante que reprocessamentos nao
-    # gerem duplicatas. Mesma rotina usada por get_aws.py.
-    deletar_mes(id_provedor, mes_referencia, ano_referencia, id_contrato)
+def gravar_csv_consumo_oci_banco(consumo_csv: csv.DictReader, id_provedor: int, id_cliente: int, id_contrato: int):
+    """Grava os dados do CSV OCI no banco. Os arquivos OCI contem dados de
+    UM DIA especifico, dividido em varios arquivos complementares (sufixo
+    -00001, -00002, etc). Cada arquivo eh processado independentemente.
 
+    Deduplicacao: apos o COPY, deleta os registros do dia que estao no CSV
+    e reinsere. Isso garante que o conjunto COMPLETO de dados do dia esteja
+    no banco (somando todos os arquivos), e que reprocessamentos nao gerem
+    duplicatas.
+
+    ATENCAO: usa deletar_dia (NÃO deletar_mes) porque cada arquivo OCI
+    corresponde a UM DIA, e deletar_mes apagaria dados de outros dias.
+    """
+    # Materializa o CSV em lista para poder iterar 2 vezes (coletar datas
+    # e depois inserir).
+    rows = list(consumo_csv)
+    if not rows:
+        return
+
+    # Coleta os dias distintos presentes no CSV
+    cutoff = datetime.datetime(2024, 1, 1, tzinfo=utc)
+    datas_para_deletar = set()
+    for consumo in rows:
+        raw_date = consumo['lineItem/intervalUsageStart']
+        # Formato OCI: '2026-06-15T00:00:00.000Z' ou '2026-06-15T00:00:00+00:00'
+        if raw_date.endswith('Z'):
+            dt = datetime.datetime.fromisoformat(raw_date[:-1] + '+00:00')
+        else:
+            dt = datetime.datetime.fromisoformat(raw_date)
+        if dt >= cutoff:
+            # Mantem apenas a parte de data (string 'YYYY-MM-DD')
+            datas_para_deletar.add(dt.date().isoformat())
+
+    # Deleta os registros existentes desses dias (deduplicacao)
+    for data_str in datas_para_deletar:
+        deletar_dia(id_provedor, data_str, id_contrato)
+
+    # Insere via COPY
     conexao_banco = ConexaoBancoDeDados()
     conexao_banco.set_cursor()
     cursor = conexao_banco.get_cursor()
@@ -53,10 +85,15 @@ def gravar_csv_consumo_oci_banco(consumo_csv: csv.DictReader, id_provedor: int, 
     from finops_celery.settings import REDIS_URL
     redis_con = redis.Redis.from_url(REDIS_URL, decode_responses=True)
 
-    # Insere em massa via COPY. Datas sao inseridas como string ISO
-    # (a coluna eh DATE mas o cast automatico do psycopg funciona).
     with cursor.copy('COPY utilizacao_recurso (id_recurso, id_cliente, id_contrato, "data", quantidade_utilizada, custo_total, id_do_provedor, cloudproviderid ) FROM STDIN') as copy:
-        for consumo in consumo_csv:
+        for consumo in rows:
+            raw_date = consumo['lineItem/intervalUsageStart']
+            if raw_date.endswith('Z'):
+                dt = datetime.datetime.fromisoformat(raw_date[:-1] + '+00:00')
+            else:
+                dt = datetime.datetime.fromisoformat(raw_date)
+            if dt < cutoff:
+                continue
             id_recurso = get_id_item(sku=consumo['product/Description'],
                                      servico=consumo['product/service'],
                                      regiao=consumo['product/region'],
@@ -65,9 +102,8 @@ def gravar_csv_consumo_oci_banco(consumo_csv: csv.DictReader, id_provedor: int, 
                                      id_provedor=id_provedor,
                                      redis_con=redis_con
                                      )
-            if datetime.datetime.fromisoformat(consumo['lineItem/intervalUsageStart']) >= datetime.datetime(2024, 1, 1, tzinfo=utc):
-                copy.write_row([id_recurso, id_cliente, id_contrato, consumo['lineItem/intervalUsageStart'],
-                           consumo['usage/billedQuantity'], consumo['cost/myCost'], consumo['lineItem/referenceNo'], id_provedor])
+            copy.write_row([id_recurso, id_cliente, id_contrato, raw_date,
+                            consumo['usage/billedQuantity'], consumo['cost/myCost'], consumo['lineItem/referenceNo'], id_provedor])
 
     cursor.execute(
         'update provedor_nuvem set jobs_restantes = jobs_restantes-1 where id_provedor = %s RETURNING jobs_restantes', (id_provedor,))
@@ -78,11 +114,11 @@ def gravar_csv_consumo_oci_banco(consumo_csv: csv.DictReader, id_provedor: int, 
     redis_con.close()
 
 @app.task(bind=True)
-def task_download_arquivos_gravar(self, config: dict, reporting_namespace: str, reporting_bucket: str, nome_arquivo: str, id_provedor: int, id_cliente: int, id_contrato: int, ano_referencia: str, mes_referencia: str):
+def task_download_arquivos_gravar(self, config: dict, reporting_namespace: str, reporting_bucket: str, nome_arquivo: str, id_provedor: int, id_cliente: int, id_contrato: int):
     data_csv = transform_gz_to_dict(download_arquivo_oci(
         config, reporting_namespace, reporting_bucket, nome_arquivo))
     gravar_csv_consumo_oci_banco(
-        data_csv, id_provedor, id_cliente, id_contrato, ano_referencia, mes_referencia)
+        data_csv, id_provedor, id_cliente, id_contrato)
 
 
 @app.task(bind=True)
@@ -102,13 +138,12 @@ def update_oci(self, id_cliente: int, id_contrato: int, id_provedor: int, config
 
     for row in report_bucket_objects.data.objects:
         if row.name.rsplit('/', 1)[-2] == 'reports/cost-csv' and row.time_modified.replace(tzinfo=utc) > datetime.datetime.fromisoformat(iso_date_time_min).replace(tzinfo=utc):
-            # Extrai ano/mes do time_modified do arquivo (formato 'YYYY-MM-DD...')
-            # Usado por gravar_csv_consumo_oci_banco para deletar registros
-            # do mesmo mes/ano antes de inserir (rotina de deduplicacao).
-            ano_ref = row.time_modified.strftime('%Y')
-            mes_ref = row.time_modified.strftime('%m')
+            # Cada arquivo OCI contem dados de UM DIA, dividido em varios
+            # arquivos complementares (sufixo -00001, -00002, etc).
+            # gravar_csv_consumo_oci_banco faz deletar_dia automaticamente
+            # baseado nas datas do CSV, antes do COPY.
             task_download_arquivos_gravar.apply_async(
-                args=[config_provedor, reporting_namespace, config_provedor['tenancy'], row.name, id_provedor, id_cliente, id_contrato, ano_ref, mes_ref])
+                args=[config_provedor, reporting_namespace, config_provedor['tenancy'], row.name, id_provedor, id_cliente, id_contrato])
             cursor.execute(
                 'update provedor_nuvem set jobs_restantes = jobs_restantes+1 where id_provedor = %s', (id_provedor,))
             
