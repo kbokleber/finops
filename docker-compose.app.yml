@@ -215,11 +215,12 @@ services:
     # trave, o Coolify/Orchestrator pode reiniciar o servico.
     # NAO usar --logfile (celery beat usa % no path como formato de
     # string e isso causa bug "beat.log@%INFO"). Logs vao para stdout.
-    # Usar scheduler in-memory (celery.beat.Scheduler) em vez de
-    # PersistentScheduler (que tem bug de trava silenciosa em alguns
-    # ambientes Docker com volumes). Como o restart=unless-stopped
-    # recupera o beat, nao precisamos de persistencia do schedule.
-    command: celery -A finops_celery beat --loglevel=INFO -S celery.beat.Scheduler --pidfile=/tmp/beat.pid
+    # PersistentScheduler (default em Celery 5.x) usa um arquivo
+    # (celerybeat-schedule) para guardar o estado e acordar
+    # corretamente. Estava usando celery.beat.Scheduler (in-memory)
+    # mas ele estava travando silenciosamente sem disparar tasks.
+    # Arquivo do schedule fica em /tmp/celerybeat-schedule.
+    command: celery -A finops_celery beat --loglevel=INFO --pidfile=/tmp/beat.pid
     environment:
       DB_HOST: postgresql
       DB_PORT: "5432"
