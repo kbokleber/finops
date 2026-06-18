@@ -88,7 +88,8 @@ def gravar_csv_consumo_oci_banco(consumo_csv: csv.DictReader, id_provedor: int, 
 
     if rows_to_insert:
         # executemany com ON CONFLICT DO NOTHING - requer UNIQUE INDEX
-        # na coluna hash_unico. Crie o indice se nao existir.
+        # na coluna (data, hash_unico). Em partitioned tables (PG 17+),
+        # unique constraints DEVEM incluir todas as colunas de particao (data).
         # Tambem cria a coluna se nao existir (idempotente).
         try:
             cursor.execute("""
@@ -97,7 +98,7 @@ def gravar_csv_consumo_oci_banco(consumo_csv: csv.DictReader, id_provedor: int, 
             """)
             cursor.execute("""
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_utilizacao_recurso_hash_unico
-                ON utilizacao_recurso (hash_unico)
+                ON utilizacao_recurso (data, hash_unico)
             """)
         except Exception as e:
             print(f"aviso ao criar coluna/indice: {e}")
@@ -108,7 +109,7 @@ def gravar_csv_consumo_oci_banco(consumo_csv: csv.DictReader, id_provedor: int, 
              quantidade_utilizada, custo_total, id_do_provedor,
              cloudproviderid, hash_unico)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (hash_unico) DO NOTHING
+            ON CONFLICT (data, hash_unico) DO NOTHING
         """, rows_to_insert)
 
     cursor.execute(
