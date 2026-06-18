@@ -198,29 +198,10 @@ services:
       dockerfile: docker/app/Dockerfile
     image: finops/app:latest
     restart: unless-stopped
-    # Watchdog em Python (sem expansao de shell, mais robusto):
-    # o beat trava silenciosamente em alguns ambientes (race condition no
-    # init_loader durante o boot). Este loop Python reinicia o beat em 5s
-    # se o processo morrer, sem depender de expansao de variaveis do sh.
-    command: >
-      python -c "import subprocess, time, sys
-log='/finops/finops_celery/logs/beat.log'
-while True:
-    print(f'[beat-watchdog] Starting celery beat', flush=True)
-    with open(log, 'a') as f:
-        f.write('[beat-watchdog] starting celery beat\n')
-    rc = subprocess.call([
-        'celery', '-A', 'finops_celery', 'beat',
-        '--loglevel=INFO',
-        '--logfile=' + log,
-        '--pidfile=/tmp/beat.pid'
-    ])
-    print(f'[beat-watchdog] Beat exited rc={rc}, restarting in 5s', flush=True)
-    with open(log, 'a') as f:
-        f.write(f'[beat-watchdog] exited rc={rc}, restarting in 5s\n')
-    time.sleep(5)"
+    # Beat direto, sem watchdog (igual dev local). Caso o beat
+    # trave, o Coolify/Orchestrator pode reiniciar o servico.
+    command: celery -A finops_celery beat --loglevel=INFO --logfile=/finops/finops_celery/logs/beat.log --pidfile=/tmp/beat.pid
     environment:
-      PYTHONUNBUFFERED: "1"
       DB_HOST: postgresql
       DB_PORT: "5432"
       DB_USER: ${POSTGRES_USER:-svc_finops}
