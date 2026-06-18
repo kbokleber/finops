@@ -59,7 +59,7 @@ services:
       CONEXAO_DB_USER: ${POSTGRES_USER:-svc_finops}
       CONEXAO_DB_SENHA: ${POSTGRES_PASSWORD}
       CONEXAO_DB_DATABASE: ${POSTGRES_DB:-finopsdatabase}
-      REDIS_DB_URL: redis
+      REDIS_DB_URL: j11k4swnoeqrb83phuam89vo
       REDIS_DB_PORT: "6379"
       REDIS_DB_DATABASE: "0"
       REDIS_DB_USER: default
@@ -106,7 +106,7 @@ services:
       CONEXAO_DB_USER: ${POSTGRES_USER:-svc_finops}
       CONEXAO_DB_SENHA: ${POSTGRES_PASSWORD}
       CONEXAO_DB_DATABASE: ${POSTGRES_DB:-finopsdatabase}
-      REDIS_DB_URL: redis
+      REDIS_DB_URL: j11k4swnoeqrb83phuam89vo
       REDIS_DB_PORT: "6379"
       REDIS_DB_DATABASE: "0"
       REDIS_DB_USER: default
@@ -145,7 +145,7 @@ services:
       CONEXAO_DB_USER: ${POSTGRES_USER:-svc_finops}
       CONEXAO_DB_SENHA: ${POSTGRES_PASSWORD}
       CONEXAO_DB_DATABASE: ${POSTGRES_DB:-finopsdatabase}
-      REDIS_DB_URL: redis
+      REDIS_DB_URL: j11k4swnoeqrb83phuam89vo
       REDIS_DB_PORT: "6379"
       REDIS_DB_DATABASE: "0"
       REDIS_DB_USER: default
@@ -183,7 +183,7 @@ services:
       CONEXAO_DB_USER: ${POSTGRES_USER:-svc_finops}
       CONEXAO_DB_SENHA: ${POSTGRES_PASSWORD}
       CONEXAO_DB_DATABASE: ${POSTGRES_DB:-finopsdatabase}
-      REDIS_DB_URL: redis
+      REDIS_DB_URL: j11k4swnoeqrb83phuam89vo
       REDIS_DB_PORT: "6379"
       REDIS_DB_DATABASE: "0"
       REDIS_DB_USER: default
@@ -222,7 +222,7 @@ services:
       CONEXAO_DB_USER: ${POSTGRES_USER:-svc_finops}
       CONEXAO_DB_SENHA: ${POSTGRES_PASSWORD}
       CONEXAO_DB_DATABASE: ${POSTGRES_DB:-finopsdatabase}
-      REDIS_DB_URL: redis
+      REDIS_DB_URL: j11k4swnoeqrb83phuam89vo
       REDIS_DB_PORT: "6379"
       REDIS_DB_DATABASE: "0"
       REDIS_DB_USER: default
