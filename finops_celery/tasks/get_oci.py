@@ -48,6 +48,10 @@ def gravar_csv_consumo_oci_banco(consumo_csv: csv.DictReader, id_provedor: int, 
     redis_con = redis.Redis.from_url(REDIS_URL, decode_responses=True)
     
     with cursor.copy('COPY utilizacao_recurso (id_recurso, id_cliente, id_contrato, "data", quantidade_utilizada, custo_total, id_do_provedor, cloudproviderid ) FROM STDIN') as copy:
+        # Limite minimo de data: aceita formatos com e sem timezone.
+        # CSV do OCI pode vir com 'Z' (UTC) ou sem timezone (naive UTC).
+        cutoff_naive = datetime.datetime(2024, 1, 1)
+        cutoff_aware = datetime.datetime(2024, 1, 1, tzinfo=utc)
         for consumo in consumo_csv:
             id_recurso = get_id_item(sku=consumo['product/Description'],
                                      servico=consumo['product/service'],
@@ -57,7 +61,16 @@ def gravar_csv_consumo_oci_banco(consumo_csv: csv.DictReader, id_provedor: int, 
                                      id_provedor=id_provedor,
                                      redis_con=redis_con
                                      )
-            if datetime.datetime.fromisoformat(consumo['lineItem/intervalUsageStart']) >= datetime.datetime(2024, 1, 1, tzinfo=utc):
+            # Parse robusto: aceita 'Z', '+00:00' ou naive (assume UTC)
+            raw_date = consumo['lineItem/intervalUsageStart']
+            if raw_date.endswith('Z'):
+                dt_consumo = datetime.datetime.fromisoformat(raw_date[:-1] + '+00:00')
+            else:
+                dt_consumo = datetime.datetime.fromisoformat(raw_date)
+                if dt_consumo.tzinfo is None:
+                    dt_consumo = dt_consumo.replace(tzinfo=utc)
+            # Comparacao sempre aware vs aware
+            if dt_consumo >= cutoff_aware:
                 copy.write_row([id_recurso, id_cliente, id_contrato, consumo['lineItem/intervalUsageStart'],
                            consumo['usage/billedQuantity'], consumo['cost/myCost'], consumo['lineItem/referenceNo'], id_provedor])
 
