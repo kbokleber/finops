@@ -8,4 +8,7 @@ COPY requirements.txt /finops
 RUN pip install -r requirements.txt
 #RUN mkdir -p /uwsgi
 
-COPY . /finops/finops_celery
+# O codigo do app vive em /finops/finops_celery (a pasta).
+# O comando celery precisa ser executado de /finops/ para
+# que `celery -A finops_celery` encontre o modulo.
+COPY . /finops/
