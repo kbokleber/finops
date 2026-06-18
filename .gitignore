@@ -97,3 +97,20 @@ dashboard/.env
 
 # Arquivo local com anotacoes de credenciais (NAO versionado)
 SECRETS.txt
+
+# Arquivos de debug e diagnostico temporarios
+DIAG_*.txt
+FIX_*.txt
+DEBUG_*.txt
+APLICAR_*.txt
+RECUPERAR*.txt
+RESET_*.txt
+SUBIR_*.txt
+DISPARAR_*.txt
+ESPERAR_*.txt
+DESATIVAR_*.txt
+FIND_*.txt
+CAT_*.txt
+COMMIT_MSG.txt
+RESTAURAR_*.txt
+scripts/debug_*.py

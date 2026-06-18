@@ -1,0 +1,192 @@
+# Compose LOCAL para testes com os fixes de Redis aplicados.
+# Diferencas vs docker-compose.dev.yml:
+#   - Inclui servico dashboard (que faltava)
+#   - Aplica os fixes de REDIS_URL com user default + autenticacao
+#   - Inclui servico beat para testar o disparo automatico
+#
+# Uso:
+#   docker compose -f config/docker/docker-compose.local.yml -p finops_local up -d --build
+
+name: finops-local
+
+networks:
+  finops_local_net:
+    driver: bridge
+
+services:
+  db:
+    # Imagem custom com pg_partman e pg_repack (mesma que roda na VPS)
+    image: kbokleber/custom-postgres:17-extensions
+    environment:
+      POSTGRES_DB: finopsdatabase
+      POSTGRES_USER: svc_finops
+      POSTGRES_PASSWORD: nShn9RP#-RfrpcEUraInyy
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_local_data:/var/lib/postgresql/data
+    networks:
+      - finops_local_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U svc_finops -d finopsdatabase"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7.2
+    command: ["redis-server", "--requirepass", "r32rYsBpYqovJxFwNn4NxqhhHYIFeI1FtNirKHIcmapCI7Jdc4CdTuwmCM0FF2gm"]
+    ports:
+      - "6379:6379"
+    networks:
+      - finops_local_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "r32rYsBpYqovJxFwNn4NxqhhHYIFeI1FtNirKHIcmapCI7Jdc4CdTuwmCM0FF2gm", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    networks:
+      - finops_local_net
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  finops_worker_verifica:
+    build:
+      context: ../..
+      dockerfile: config/docker/Dockerfile
+    image: finops-worker:local
+    restart: unless-stopped
+    command: celery -A finops_celery worker -n celery_verifica_update@%h --pidfile=%n.pid --loglevel=INFO --autoscale=1,1 --statedb=%n.state --time-limit=100000000000 --queues=verifica_up_date --logfile=finops_verifica.log
+    volumes:
+      - ../..:/finops_celery
+      - ../../finops_celery/.env:/finops/finops_celery/.env
+    networks:
+      - finops_local_net
+    depends_on:
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+
+  finops_worker_faz:
+    build:
+      context: ../..
+      dockerfile: config/docker/Dockerfile
+    image: finops-worker:local
+    restart: unless-stopped
+    command: celery -A finops_celery worker -n celery_faz_update@%h --pidfile=%n.pid --loglevel=INFO --autoscale=10,1 --statedb=%n.state --time-limit=100000000000 --queues=celery,atualizar_nuvem --logfile=finops_executa.log
+    volumes:
+      - ../..:/finops_celery
+      - ../../finops_celery/.env:/finops/finops_celery/.env
+    networks:
+      - finops_local_net
+    depends_on:
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+
+  finops_worker_faz2:
+    build:
+      context: ../..
+      dockerfile: config/docker/Dockerfile
+    image: finops-worker:local
+    restart: unless-stopped
+    command: celery -A finops_celery worker -n celery_faz_update2@%h --pidfile=%n.pid --loglevel=INFO --autoscale=30,1 --statedb=%n.state --time-limit=100000000000 --queues=celery,atualizar_nuvem
+    volumes:
+      - ../..:/finops_celery
+      - ../../finops_celery/.env:/finops/finops_celery/.env
+    networks:
+      - finops_local_net
+    depends_on:
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+
+  finops_celery_beat:
+    build:
+      context: ../..
+      dockerfile: config/docker/Dockerfile
+    image: finops-worker:local
+    restart: unless-stopped
+    command: celery -A finops_celery beat --pidfile=beat.pid --logfile=beat.log --loglevel=INFO
+    volumes:
+      - ../..:/finops_celery
+      - ../../finops_celery/.env:/finops/finops_celery/.env
+    networks:
+      - finops_local_net
+    depends_on:
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+
+  dashboard:
+    build:
+      context: ../..
+      dockerfile: dashboard/Dockerfile
+    image: finops-dashboard:local
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      FLASK_ENV: development
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: svc_finops
+      DB_PASSWORD: nShn9RP#-RfrpcEUraInyy
+      DB_NAME: finopsdatabase
+      CONEXAO_DB_URL: db
+      CONEXAO_DB_PORT: 5432
+      CONEXAO_DB_USER: svc_finops
+      CONEXAO_DB_SENHA: nShn9RP#-RfrpcEUraInyy
+      CONEXAO_DB_DATABASE: finopsdatabase
+      REDIS_DB_URL: redis
+      REDIS_DB_PORT: 6379
+      REDIS_DB_DATABASE: 0
+      REDIS_PASSWORD: r32rYsBpYqovJxFwNn4NxqhhHYIFeI1FtNirKHIcmapCI7Jdc4CdTuwmCM0FF2gm
+      CELERY_BROKER_URL: amqp://guest:guest@rabbitmq:5672/
+      ENABLE_AZURE_AUTH: "false"
+      SECRET_KEY: local-dev-secret-change-in-production
+    command: >
+      gunicorn --bind 0.0.0.0:5000 --workers 2
+               --chdir /app/dashboard
+               --access-logfile - --error-logfile - wsgi:app
+    volumes:
+      - ../../dashboard:/app/dashboard
+      - ../../finops_celery:/app/finops_celery
+      - dashboard_local_session:/app/dashboard/flask_session
+    networks:
+      - finops_local_net
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+volumes:
+  dashboard_local_session:
+  pg_local_data:
