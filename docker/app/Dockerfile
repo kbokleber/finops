@@ -56,16 +56,19 @@ COPY . /finops/finops_celery/
 # Cria diretorios de log que o codigo assume existirem.
 RUN mkdir -p /finops/finops_celery/logs
 
+# Usuario nao-root. Ordem importa: criar usuario PRIMEIRO, depois
+# adicionar aos grupos (caso contrario, `usermod` retorna exit 6
+# dizendo que o usuario nao existe).
+RUN useradd --create-home --shell /bin/bash app \
+    && chown -R app:app /finops
+
 # O usuario `app` precisa ter acesso ao socket do Docker.
-# Adiciona o usuario ao grupo raiz (gid 0) para que o socket
-# do Docker (permissao 660, root:docker) seja acessivel.
-# O socket do Docker no host tipicamente eh root:docker com perm 660.
+# Adiciona o usuario ao grupo 'docker' (gid espelha o host) e ao grupo
+# 'root' (gid 0) para que o socket do Docker (permissao 660,
+# root:docker) seja acessivel.
 RUN groupadd -f docker \
     && usermod -aG docker,root app
 
-# Usuario nao-root.
-RUN useradd --create-home --shell /bin/bash app \
-    && chown -R app:app /finops
 USER app
 
 # CWD passa a ser o diretorio-raiz copiado. Assim:
