@@ -87,7 +87,7 @@ services:
     restart: unless-stopped
     command: >
       celery -A finops_celery worker
-             -n celery_verifica_update@$${HOSTNAME}
+             -n celery_verifica_update@%h
              --loglevel=INFO
              --autoscale=1,1
              --time-limit=100000000000
@@ -125,7 +125,7 @@ services:
     restart: unless-stopped
     command: >
       celery -A finops_celery worker
-             -n celery_faz_update@$${HOSTNAME}
+             -n celery_faz_update@%h
              --loglevel=INFO
              --autoscale=10,1
              --time-limit=100000000000
@@ -163,7 +163,7 @@ services:
     restart: unless-stopped
     command: >
       celery -A finops_celery worker
-             -n celery_faz_update2@$${HOSTNAME}
+             -n celery_faz_update2@%h
              --loglevel=INFO
              --autoscale=30,1
              --time-limit=100000000000
@@ -200,7 +200,10 @@ services:
     restart: unless-stopped
     # Beat direto, sem watchdog (igual dev local). Caso o beat
     # trave, o Coolify/Orchestrator pode reiniciar o servico.
-    command: celery -A finops_celery beat --loglevel=INFO --logfile=/finops/finops_celery/logs/beat.log --pidfile=/tmp/beat.pid
+    # NAO usar --logfile (celery beat usa % no path como formato de
+    # string e isso causa bug "beat.log@%INFO"). Logs vao para stdout.
+    # O schedule persistente fica em volume compartilhado.
+    command: celery -A finops_celery beat --loglevel=INFO --schedule=/tmp/celerybeat-schedule --pidfile=/tmp/beat.pid
     environment:
       DB_HOST: postgresql
       DB_PORT: "5432"
