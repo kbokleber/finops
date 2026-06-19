@@ -130,14 +130,13 @@ services:
       dockerfile: docker/app/Dockerfile
     image: finops/app:latest
     restart: unless-stopped
-    # autoscale=3,1 (max 3 workers) para nao estourar o limite de conexoes do Postgres
-    # Cada worker abre 1 conexao PG. Postgres tem ~100 conexoes default.
-    # Com 3 workers, dashboard e beat, ficamos em ~6 conexoes, seguro.
+    # autoscale=1,1 (serial) para OCI nao duplicar dados ao processar arquivos
+    # complementares do mesmo report em paralelo.
     command: >
       celery -A finops_celery worker
              -n celery_faz_update@%h
              --loglevel=INFO
-             --autoscale=3,1
+             --autoscale=1,1
              --time-limit=100000000000
              --queues=celery,atualizar_nuvem
              --logfile=/finops/finops_celery/logs/finops_executa.log
@@ -172,12 +171,13 @@ services:
       dockerfile: docker/app/Dockerfile
     image: finops/app:latest
     restart: unless-stopped
-    # autoscale=3,1 (max 3 workers) para nao estourar o limite de conexoes do Postgres
+    # autoscale=1,1 (serial) para OCI nao duplicar dados ao processar arquivos
+    # complementares do mesmo report em paralelo.
     command: >
       celery -A finops_celery worker
              -n celery_faz_update2@%h
              --loglevel=INFO
-             --autoscale=3,1
+             --autoscale=1,1
              --time-limit=100000000000
              --queues=celery,atualizar_nuvem
     environment:
